@@ -243,7 +243,7 @@ export default function ListeVisiteur() {
 
                                             <div className="grid grid-cols-2 gap-2 text-xs">
                                                 <div>
-                                                    <span className="text-gray-500">Téléphone:</span>
+                                                    <span className="text-gray-600">Téléphone:</span>
                                                     <p className="font-medium">{v.telephone}</p>
                                                 </div>
                                                 <div>
