@@ -43,3 +43,6 @@ Route::post('/visiteur/sortie/{id}', [VisiteurController::class, 'finaliserSorti
 
 Route::post('/scan-cni', [VisiteurController::class, 'scanCni']);
  
+
+dd($text);
+scanCni

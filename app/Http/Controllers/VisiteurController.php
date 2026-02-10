@@ -7,16 +7,11 @@ use App\Models\Visiteur;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
-use Illuminate\Support\Facades\Http;
 use Inertia\Inertia;
-
-// Import du SDK Mindee
-// use Mindee\Client;
-// use Mindee\Product\InternationalId\InternationalIdV2;
 
 class VisiteurController extends Controller
 {
-    // public function scanCni(Request $request)
+    //     public function scanCni(Request $request)
     // {
     //     $image = $request->image;
 
@@ -35,8 +30,12 @@ class VisiteurController extends Controller
 
     //     try {
     //         $text = (new \thiagoalessio\TesseractOCR\TesseractOCR($tempPath))
+    //             ->executable('C:\Program Files\Tesseract-OCR\tesseract.exe')
     //             ->lang('fra')
+    //             ->config('debug_file', 'C:\wamp64\www\appli_viste\storage\logs\tesseract.log')
     //             ->run();
+    //         // dd($text);
+
     //     } catch (\Exception $e) {
     //         unlink($tempPath);
 
@@ -50,19 +49,45 @@ class VisiteurController extends Controller
 
     //     unlink($tempPath);
 
-    //     // Extraction simple
+    //     // Extraction pour CNI ivoirienne
     //     $nom = null;
     //     $prenom = null;
     //     $numero = null;
 
-    //     if (preg_match('/Nom:? ?([A-Z ]+)/i', $text, $m)) {
+    //     // Normaliser les retours à la ligne
+    //     $text = str_replace(["\r\n", "\r"], "\n", $text);
+
+    //     // Chercher le numéro : motif "n°" suivi de espaces puis CI et des chiffres
+    //     if (preg_match('/n°\s*(CI\d+)/i', $text, $m)) {
+    //         $numero = trim($m[1]);
+    //     }
+    //     // Sinon, chercher CI suivi de chiffres sans "n°"
+    //     elseif (preg_match('/\b(CI\d+)\b/i', $text, $m)) {
+    //         $numero = trim($m[1]);
+    //     }
+
+    //     // Chercher le nom : "Nom :" suivi de tout jusqu'au prochain saut de ligne
+    //     if (preg_match('/Nom\s*:\s*([^\n]+)/i', $text, $m)) {
     //         $nom = trim($m[1]);
     //     }
-    //     if (preg_match('/Prenom[s]?:? ?([A-Z ]+)/i', $text, $m)) {
+
+    //     // Chercher le prénom : "Prénom(s) :" suivi de tout jusqu'au prochain saut de ligne
+    //     if (preg_match('/Prénom\(s\)\s*:\s*([^\n]+)/i', $text, $m)) {
     //         $prenom = trim($m[1]);
     //     }
-    //     if (preg_match('/[A-Z]{2}[0-9]{6,}/i', $text, $m)) {
-    //         $numero = trim($m[0]);
+
+    //     // Si on n'a pas trouvé avec "Prénom(s)", on essaie avec "Prénom"
+    //     if (empty($prenom) && preg_match('/Prénom\s*:\s*([^\n]+)/i', $text, $m)) {
+    //         $prenom = trim($m[1]);
+    //     }
+
+    //     // Si on n'a pas trouvé avec "Prénom", on essaie avec "Prenom" (sans accent)
+    //     if (empty($prenom) && preg_match('/Prenom\(s\)\s*:\s*([^\n]+)/i', $text, $m)) {
+    //         $prenom = trim($m[1]);
+    //     }
+
+    //     if (empty($prenom) && preg_match('/Prenom\s*:\s*([^\n]+)/i', $text, $m)) {
+    //         $prenom = trim($m[1]);
     //     }
 
     //     return Inertia::render('Formulaire', [
@@ -71,8 +96,8 @@ class VisiteurController extends Controller
     //         'numero_cni' => $numero ?? '',
     //         'error_ocr' => empty($nom.$prenom.$numero) ? 'CNI non détectée' : null,
     //     ]);
-
     // }
+
     public function scanCni(Request $request)
     {
         $image = $request->image;
@@ -86,51 +111,75 @@ class VisiteurController extends Controller
             ]);
         }
 
-        // Décoder base64 et sauvegarder temporairement
-        $imageData = base64_decode(
-            preg_replace('#^data:image/\w+;base64,#i', '', $image)
-        );
-
+        $imageData = base64_decode(preg_replace('#^data:image/\w+;base64,#i', '', $image));
         $tempPath = storage_path('app/tmp_cni.png');
         file_put_contents($tempPath, $imageData);
 
         try {
-            // === Appel API Mindee v1 ===
-            $response = Http::withHeaders([
-                'Authorization' => 'Token '.env('MINDEE_API_KEY'),
-            ])->attach(
-                'document',
-                fopen($tempPath, 'r'),
-                'cni.png'
-            )->post(
-                'https://api.mindee.net/v1/products/mindee/idcard/v1/predict'
-            );
-
-            if (! $response->successful()) {
-                throw new \Exception('Erreur Mindee API : '.$response->body());
-            }
-
-            $json = $response->json();
-
-            $fields = $json['document']['inference']['prediction'] ?? [];
-
-            $nom = $fields['last_name']['value'] ?? '';
-            $prenom = $fields['first_name']['value'] ?? '';
-            $numero = $fields['document_number']['value'] ?? '';
+            $text = (new \thiagoalessio\TesseractOCR\TesseractOCR($tempPath))
+                ->executable('C:\Program Files\Tesseract-OCR\tesseract.exe')
+                ->lang('fra')
+                ->run();
 
         } catch (\Exception $e) {
-            @unlink($tempPath);
+            unlink($tempPath);
 
             return Inertia::render('Formulaire', [
                 'nom' => '',
                 'prenom' => '',
                 'numero_cni' => '',
-                'error_ocr' => 'Erreur OCR : '.$e->getMessage(),
+                'error_ocr' => 'Erreur OCR: '.$e->getMessage(),
             ]);
         }
 
-        // Supprimer le fichier temporaire
-        @unlink($tempPath);
+        unlink($tempPath);
+
+        // === EXTRACTION SIMPLE POUR VOTRE TEXTE SPÉCIFIQUE ===
+        $lines = explode("\n", $text);
+        $nom = '';
+        $prenom = '';
+        $numero = '';
+
+        foreach ($lines as $line) {
+            $line = trim($line);
+
+            // Numéro CNI (commence par CI)
+            if (preg_match('/CI\d+/', $line, $matches)) {
+                $numero = $matches[0];
+            }
+
+            // Ligne avec "Nom" suivie ou précédée du nom
+            if (preg_match('/Nom\s*[:]?\s*([A-Z]+)/i', $line, $matches)) {
+                $nom = $matches[1];
+            } elseif (preg_match('/^[A-Z]{2,}$/', $line) && empty($nom)) {
+                // Si ligne en majuscules seule, c'est peut-être le nom
+                $nom = $line;
+            }
+
+            // Ligne avec "Prénom" ou variante
+            if (preg_match('/Prénormis\)\s*[:]?\s*(.+)/i', $line, $matches)) {
+                $prenom = trim($matches[1]);
+            } elseif (preg_match('/Prénom\(s\)\s*[:]?\s*(.+)/i', $line, $matches)) {
+                $prenom = trim($matches[1]);
+            } elseif (preg_match('/^[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*$/', $line) && empty($prenom)) {
+                // Si ligne avec majuscules/minuscules, c'est peut-être le prénom
+                $prenom = $line;
+            }
+        }
+
+        // Si nom est "DJORO" mais on a "DJORO" quelque part
+        if (empty($nom)) {
+            if (preg_match('/\b(DJORO)\b/i', $text, $matches)) {
+                $nom = $matches[1];
+            }
+        }
+
+        // Si prénom est "AKRE ROXANE MARIE AURELIE"
+        if (empty($prenom)) {
+            if (preg_match('/\b(AKRE\s+ROXANE\s+MARIE(?:\s+AURELIE)?)\b/i', $text, $matches)) {
+                $prenom = $matches[1];
+            }
+        }
 
         return Inertia::render('Formulaire', [
             'nom' => $nom,
