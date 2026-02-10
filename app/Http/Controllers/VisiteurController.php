@@ -99,7 +99,7 @@ class VisiteurController extends Controller
                 fopen($tempPath, 'r'),
                 'cni.png'
             )->post(
-                'https://api.mindee.net/v1/products/mindee/idcard/v1/predict'
+                'https://api.mindee.net/products/mindee/idcard/v2/predict'
             );
 
             if (! $response->successful()) {
