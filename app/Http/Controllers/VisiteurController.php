@@ -11,6 +11,63 @@ use Inertia\Inertia;
 
 class VisiteurController extends Controller
 {
+    // public function scanCni(Request $request)
+    // {
+    //     $image = $request->image;
+
+    //     if (! $image) {
+    //         return Inertia::render('Formulaire', [
+    //             'nom' => '',
+    //             'prenom' => '',
+    //             'numero_cni' => '',
+    //             'error_ocr' => 'Aucune image reçue',
+    //         ]);
+    //     }
+
+    //     $imageData = base64_decode(preg_replace('#^data:image/\w+;base64,#i', '', $image));
+    //     $tempPath = storage_path('app/tmp_cni.png');
+    //     file_put_contents($tempPath, $imageData);
+
+    //     try {
+    //         $text = (new \thiagoalessio\TesseractOCR\TesseractOCR($tempPath))
+    //             ->lang('fra')
+    //             ->run();
+    //     } catch (\Exception $e) {
+    //         unlink($tempPath);
+
+    //         return Inertia::render('Formulaire', [
+    //             'nom' => '',
+    //             'prenom' => '',
+    //             'numero_cni' => '',
+    //             'error_ocr' => 'Erreur OCR: '.$e->getMessage(),
+    //         ]);
+    //     }
+
+    //     unlink($tempPath);
+
+    //     // Extraction simple
+    //     $nom = null;
+    //     $prenom = null;
+    //     $numero = null;
+
+    //     if (preg_match('/Nom:? ?([A-Z ]+)/i', $text, $m)) {
+    //         $nom = trim($m[1]);
+    //     }
+    //     if (preg_match('/Prenom[s]?:? ?([A-Z ]+)/i', $text, $m)) {
+    //         $prenom = trim($m[1]);
+    //     }
+    //     if (preg_match('/[A-Z]{2}[0-9]{6,}/i', $text, $m)) {
+    //         $numero = trim($m[0]);
+    //     }
+
+    //     return Inertia::render('Formulaire', [
+    //         'nom' => $nom ?? '',
+    //         'prenom' => $prenom ?? '',
+    //         'numero_cni' => $numero ?? '',
+    //         'error_ocr' => empty($nom.$prenom.$numero) ? 'CNI non détectée' : null,
+    //     ]);
+
+    // }
     public function scanCni(Request $request)
     {
         $image = $request->image;
@@ -24,16 +81,41 @@ class VisiteurController extends Controller
             ]);
         }
 
-        $imageData = base64_decode(preg_replace('#^data:image/\w+;base64,#i', '', $image));
+        // Décoder base64
+        $imageData = base64_decode(
+            preg_replace('#^data:image/\w+;base64,#i', '', $image)
+        );
+
         $tempPath = storage_path('app/tmp_cni.png');
         file_put_contents($tempPath, $imageData);
 
         try {
-            $text = (new \thiagoalessio\TesseractOCR\TesseractOCR($tempPath))
-                ->lang('fra')
-                ->run();
+
+            $response = Http::withHeaders([
+                'Authorization' => 'Token '.config('services.mindee.key'), // <-- ici
+            ])->attach(
+                'document',
+                fopen($tempPath, 'r'),
+                'cni.png'
+            )->post(
+                'https://api.mindee.net/v1/products/mindee/idcard/v1/predict'
+            );
+
+            if (! $response->successful()) {
+                throw new \Exception('Erreur Mindee API : '.$response->body());
+            }
+
+            $json = $response->json();
+
+            $fields = $json['document']['inference']['prediction'] ?? [];
+
+            $nom = $fields['last_name']['value'] ?? null;
+            $prenom = $fields['first_name']['value'] ?? null;
+            $numero = $fields['document_number']['value'] ?? null;
+
         } catch (\Exception $e) {
-            unlink($tempPath);
+
+            @unlink($tempPath);
 
             return Inertia::render('Formulaire', [
                 'nom' => '',
@@ -43,30 +125,16 @@ class VisiteurController extends Controller
             ]);
         }
 
-        unlink($tempPath);
-
-        // Extraction simple
-        $nom = null;
-        $prenom = null;
-        $numero = null;
-
-        if (preg_match('/Nom:? ?([A-Z ]+)/i', $text, $m)) {
-            $nom = trim($m[1]);
-        }
-        if (preg_match('/Prenom[s]?:? ?([A-Z ]+)/i', $text, $m)) {
-            $prenom = trim($m[1]);
-        }
-        if (preg_match('/[A-Z]{2}[0-9]{6,}/i', $text, $m)) {
-            $numero = trim($m[0]);
-        }
+        @unlink($tempPath);
 
         return Inertia::render('Formulaire', [
             'nom' => $nom ?? '',
             'prenom' => $prenom ?? '',
             'numero_cni' => $numero ?? '',
-            'error_ocr' => empty($nom.$prenom.$numero) ? 'CNI non détectée' : null,
+            'error_ocr' => empty($nom.$prenom.$numero)
+                ? 'CNI non détectée'
+                : null,
         ]);
-
     }
 
     // Afficher le formulaire

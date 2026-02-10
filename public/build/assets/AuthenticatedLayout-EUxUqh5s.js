@@ -1,4 +1,4 @@
-import{b as x,r as m,j as e,L as i,a as h}from"./app-DEaq_-iL.js";import{l as n}from"./logoINP.75e5c7a93c30dc493d7f-D84s77X7.js";function b({header:s,children:c}){const t=x().props.auth.user,[l,r]=m.useState(!1),o=()=>{h.post(route("logout"))},d=()=>{r(!l)},a=()=>{r(!1)};return e.jsxs("div",{className:"min-h-screen bg-gray-50 flex",children:[l&&e.jsx("div",{className:"fixed inset-0 bg-black bg-opacity-50 z-40 lg:hidden",onClick:a}),e.jsxs("div",{className:`
+import{b as x,r as m,j as e,L as i,a as h}from"./app-CjUWZvaR.js";import{l as n}from"./logoINP.75e5c7a93c30dc493d7f-D84s77X7.js";function b({header:s,children:c}){const t=x().props.auth.user,[l,r]=m.useState(!1),o=()=>{h.post(route("logout"))},d=()=>{r(!l)},a=()=>{r(!1)};return e.jsxs("div",{className:"min-h-screen bg-gray-50 flex",children:[l&&e.jsx("div",{className:"fixed inset-0 bg-black bg-opacity-50 z-40 lg:hidden",onClick:a}),e.jsxs("div",{className:`
                 fixed lg:static inset-y-0 left-0 z-50
                 w-64 bg-gradient-to-b from-blue-600 to-blue-800 shadow-lg flex flex-col
                 transform transition-transform duration-300 ease-in-out

@@ -253,7 +253,7 @@ export default function ListeVisiteur() {
                                             </div>
 
                                             <div className="text-xs">
-                                                <span className="text-gray-500">Rencontre:</span>
+                                                <span className="text-gray-600">Rencontre:</span>
                                                 <p className="font-medium">{v.personne_a_rencontrer}</p>
                                             </div>
 

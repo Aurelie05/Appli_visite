@@ -14,6 +14,11 @@ return [
     |
     */
 
+    // ... autres services
+    'mindee' => [
+        'key' => env('MINDEE_API_KEY'), // <--- ici on lie la variable .env
+    ],
+
     'postmark' => [
         'key' => env('POSTMARK_API_KEY'),
     ],
