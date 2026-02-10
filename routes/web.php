@@ -42,7 +42,3 @@ Route::get('/visiteurs/list', [VisiteurController::class, 'visiteursList'])->nam
 Route::post('/visiteur/sortie/{id}', [VisiteurController::class, 'finaliserSortie'])->name('visiteur.sortie');
 
 Route::post('/scan-cni', [VisiteurController::class, 'scanCni']);
- 
-
-dd($text);
-scanCni
