@@ -7,8 +7,10 @@ use App\Models\Visiteur;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
-use Illuminate\Support\Facades\Http;
 use Inertia\Inertia;
+// Import du SDK Mindee
+use Mindee\Client;
+use Mindee\Product\InternationalId\InternationalIdV2;
 
 class VisiteurController extends Controller
 {
@@ -82,7 +84,7 @@ class VisiteurController extends Controller
             ]);
         }
 
-        // Décoder base64
+        // Décoder base64 et sauvegarder temporairement
         $imageData = base64_decode(
             preg_replace('#^data:image/\w+;base64,#i', '', $image)
         );
@@ -91,31 +93,23 @@ class VisiteurController extends Controller
         file_put_contents($tempPath, $imageData);
 
         try {
+            // === Début SDK Mindee ===
+            $client = new Client(config('services.mindee.key'));
 
-            $response = Http::withHeaders([
-                'Authorization' => 'Bearer '.config('services.mindee.key'),
-            ])->attach(
-                'document',
-                fopen($tempPath, 'r'),
-                'cni.png'
-            )->post(
-                'https://api.mindee.net/v2/products/mindee/id-card/predict'
-            );
+            // Créer une source d'input à partir du fichier
+            $inputSource = $client->sourceFromPath($tempPath);
 
-            if (! $response->successful()) {
-                throw new \Exception('Erreur Mindee API : '.$response->body());
-            }
+            // Parse le document de manière synchrone
+            $response = $client->parse(InternationalIdV2::class, $inputSource);
 
-            $json = $response->json();
+            // Récupère les champs du document
+            $result = $response->document->inference->prediction;
 
-            $fields = $json['document']['inference']['prediction'] ?? [];
-
-            $nom = $fields['last_name']['value'] ?? null;
-            $prenom = $fields['first_name']['value'] ?? null;
-            $numero = $fields['document_number']['value'] ?? null;
+            $nom = $result->surname->value ?? '';
+            $prenom = $result->givenNames[0]->value ?? '';
+            $numero = $result->documentNumber->value ?? '';
 
         } catch (\Exception $e) {
-
             @unlink($tempPath);
 
             return Inertia::render('Formulaire', [
@@ -126,15 +120,14 @@ class VisiteurController extends Controller
             ]);
         }
 
+        // Supprimer le fichier temporaire
         @unlink($tempPath);
 
         return Inertia::render('Formulaire', [
-            'nom' => $nom ?? '',
-            'prenom' => $prenom ?? '',
-            'numero_cni' => $numero ?? '',
-            'error_ocr' => empty($nom.$prenom.$numero)
-                ? 'CNI non détectée'
-                : null,
+            'nom' => $nom,
+            'prenom' => $prenom,
+            'numero_cni' => $numero,
+            'error_ocr' => empty($nom.$prenom.$numero) ? 'CNI non détectée' : null,
         ]);
     }
 
