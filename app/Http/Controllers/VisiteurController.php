@@ -116,13 +116,14 @@ class VisiteurController extends Controller
         file_put_contents($tempPath, $imageData);
 
         try {
+            // === SIMPLE - NE PAS SPÉCIFIER LE CHEMIN ===
+            // La bibliothèque va chercher Tesseract automatiquement
             $text = (new \thiagoalessio\TesseractOCR\TesseractOCR($tempPath))
-                ->executable('C:\Program Files\Tesseract-OCR\tesseract.exe')
                 ->lang('fra')
                 ->run();
 
         } catch (\Exception $e) {
-            unlink($tempPath);
+            @unlink($tempPath);
 
             return Inertia::render('Formulaire', [
                 'nom' => '',
@@ -132,8 +133,9 @@ class VisiteurController extends Controller
             ]);
         }
 
-        unlink($tempPath);
+        @unlink($tempPath);
 
+        // ... (le reste du code d'extraction reste identique)
         // === EXTRACTION SIMPLE POUR VOTRE TEXTE SPÉCIFIQUE ===
         $lines = explode("\n", $text);
         $nom = '';
