@@ -40,16 +40,18 @@ class VisiteurController extends Controller
             $apiKey = env('OCR_SPACE_API_KEY', 'helloworld'); // "helloworld" pour tester, mais limité à 25 requêtes par jour
 
             // Envoyer la requête à l'API OCR.space
-            $response = Http::asForm()->post('https://api.ocr.space/parse/image', [
-                'apikey' => $apiKey,
-                'base64Image' => $base64Image,
-                'language' => 'fre', // Français
-                'isOverlayRequired' => false,
-                'filetype' => 'PNG',
-                'detectOrientation' => true,
-                'scale' => true,
-                'OCREngine' => 2, // Moteur 2 pour une meilleure précision
-            ]);
+            $response = Http::timeout(30) // 30 secondes de timeout
+                ->asForm() // Important: envoyer comme formulaire
+                ->post('https://api.ocr.space/parse/image', [
+                    'apikey' => 'K81813002388957', // Remplacez par votre clé
+                    'base64Image' => 'data:image/png;base64,'.$base64Image,
+                    'language' => 'fre', // Français
+                    'isOverlayRequired' => 'false',
+                    'filetype' => 'PNG',
+                    'detectOrientation' => 'true',
+                    'scale' => 'true',
+                    'OCREngine' => 2, // Engine 2 pour meilleure précision
+                ]);
 
             $data = $response->json();
 
