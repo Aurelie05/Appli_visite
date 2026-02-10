@@ -93,13 +93,13 @@ class VisiteurController extends Controller
         try {
 
             $response = Http::withHeaders([
-                'Authorization' => 'Token '.config('services.mindee.key'), // <-- ici
+                'Authorization' => 'Bearer '.config('services.mindee.key'),
             ])->attach(
                 'document',
                 fopen($tempPath, 'r'),
                 'cni.png'
             )->post(
-                'https://api.mindee.net/products/mindee/idcard/v2/predict'
+                'https://api.mindee.net/v2/products/mindee/id-card/predict'
             );
 
             if (! $response->successful()) {
