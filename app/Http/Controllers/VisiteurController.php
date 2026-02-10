@@ -26,58 +26,63 @@ class VisiteurController extends Controller
         }
 
         try {
-            // Préparer l'image pour OCR.space
-            // L'API attend un champ "base64Image" avec le préfixe
-            // Notre $image est déjà au format "data:image/png;base64, ..." donc on peut l'utiliser directement
-            // Mais vérifions qu'on a bien le préfixe
-            $base64Image = $image;
-            if (strpos($image, 'base64,') === false) {
-                // Si le préfixe n'est pas présent, on l'ajoute
-                $base64Image = 'data:image/png;base64,'.$image;
-            }
+            // === GESTION DU FORMAT BASE64 ===
+            // Si l'image ne commence pas par "data:image/", on ajoute le préfixe
+            $base64Image = (strpos($image, 'data:image/') === 0) ? $image : 'data:image/png;base64,'.$image;
 
-            // Clé API OCR.space (à mettre dans le .env)
-            $apiKey = env('OCR_SPACE_API_KEY', 'helloworld'); // "helloworld" pour tester, mais limité à 25 requêtes par jour
-
-            // Envoyer la requête à l'API OCR.space
-            $response = Http::timeout(30) // 30 secondes de timeout
-                ->asForm() // Important: envoyer comme formulaire
+            // === APPEL API OCR.space ===
+            $response = Http::asForm()
                 ->post('https://api.ocr.space/parse/image', [
-                    'apikey' => 'K81813002388957', // Remplacez par votre clé
-                    'base64Image' => 'data:image/png;base64,'.$base64Image,
-                    'language' => 'fre', // Français
-                    'isOverlayRequired' => 'false',
-                    'filetype' => 'PNG',
-                    'detectOrientation' => 'true',
-                    'scale' => 'true',
-                    'OCREngine' => 2, // Engine 2 pour meilleure précision
+                    'apikey' => env('OCR_SPACE_API_KEY', 'K81813002388957'),
+                    'base64Image' => $base64Image,
+                    'language' => 'fre',
+                    'OCREngine' => '2',
                 ]);
 
             $data = $response->json();
 
-            // Vérifier si l'API a retourné une erreur
-            if ($data['IsErroredOnProcessing']) {
+            // Vérifier les erreurs
+            if (isset($data['IsErroredOnProcessing']) && $data['IsErroredOnProcessing']) {
                 throw new \Exception('Erreur OCR.space: '.($data['ErrorMessage'][0] ?? 'Erreur inconnue'));
             }
 
-            // Récupérer le texte
+            if (! isset($data['ParsedResults'][0]['ParsedText'])) {
+                throw new \Exception('Aucun texte extrait');
+            }
+
             $text = $data['ParsedResults'][0]['ParsedText'] ?? '';
 
-            // Extraire les informations
+            // === EXTRACTION SIMPLIFIÉE ===
             $nom = '';
             $prenom = '';
             $numero = '';
 
-            // Logique d'extraction (à adapter selon le format de la CNI ivoirienne)
-            // Exemple simple : chercher des motifs
-            if (preg_match('/Nom\s*:?\s*([A-Z\s]+)/i', $text, $matches)) {
+            // Chercher le numéro
+            if (preg_match('/CI\d+/', strtoupper($text), $matches)) {
+                $numero = $matches[0];
+            }
+
+            // Chercher nom et prénom par lignes
+            $lines = array_map('trim', explode("\n", $text));
+            foreach ($lines as $index => $line) {
+                // Si ligne est "Nom" ou "NOM", prendre la ligne suivante
+                if (preg_match('/^nom$/i', $line) && isset($lines[$index + 1])) {
+                    $nom = trim($lines[$index + 1]);
+                }
+
+                // Si ligne contient "Prénom" ou variante, prendre la ligne suivante
+                if (preg_match('/prénom\(s\)|prénormis\)/i', $line) && isset($lines[$index + 1])) {
+                    $prenom = trim($lines[$index + 1]);
+                }
+            }
+
+            // Fallback: extraction par pattern
+            if (empty($nom) && preg_match('/Nom\s*:?\s*([A-Z\s]+)/i', $text, $matches)) {
                 $nom = trim($matches[1]);
             }
-            if (preg_match('/Prénom\(s\)\s*:?\s*([A-Z\s\-]+)/i', $text, $matches)) {
+
+            if (empty($prenom) && preg_match('/Prénom\(s\)\s*:?\s*([A-Z\s\-]+)/i', $text, $matches)) {
                 $prenom = trim($matches[1]);
-            }
-            if (preg_match('/CI\d+/', $text, $matches)) {
-                $numero = $matches[0];
             }
 
             return Inertia::render('Formulaire', [
