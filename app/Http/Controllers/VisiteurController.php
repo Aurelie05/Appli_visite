@@ -8,9 +8,10 @@ use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Inertia\Inertia;
+
 // Import du SDK Mindee
-use Mindee\Client;
-use Mindee\Product\InternationalId\InternationalIdV2;
+// use Mindee\Client;
+// use Mindee\Product\InternationalId\InternationalIdV2;
 
 class VisiteurController extends Controller
 {
@@ -93,21 +94,28 @@ class VisiteurController extends Controller
         file_put_contents($tempPath, $imageData);
 
         try {
-            // === Début SDK Mindee ===
-            $client = new Client(config('services.mindee.key'));
+            // === Appel API Mindee v1 ===
+            $response = Http::withHeaders([
+                'Authorization' => 'Token '.env('MINDEE_API_KEY'),
+            ])->attach(
+                'document',
+                fopen($tempPath, 'r'),
+                'cni.png'
+            )->post(
+                'https://api.mindee.net/v1/products/mindee/idcard/v1/predict'
+            );
 
-            // Créer une source d'input à partir du fichier
-            $inputSource = $client->sourceFromPath($tempPath);
+            if (! $response->successful()) {
+                throw new \Exception('Erreur Mindee API : '.$response->body());
+            }
 
-            // Parse le document de manière synchrone
-            $response = $client->parse(InternationalIdV2::class, $inputSource);
+            $json = $response->json();
 
-            // Récupère les champs du document
-            $result = $response->document->inference->prediction;
+            $fields = $json['document']['inference']['prediction'] ?? [];
 
-            $nom = $result->surname->value ?? '';
-            $prenom = $result->givenNames[0]->value ?? '';
-            $numero = $result->documentNumber->value ?? '';
+            $nom = $fields['last_name']['value'] ?? '';
+            $prenom = $fields['first_name']['value'] ?? '';
+            $numero = $fields['document_number']['value'] ?? '';
 
         } catch (\Exception $e) {
             @unlink($tempPath);
@@ -116,7 +124,7 @@ class VisiteurController extends Controller
                 'nom' => '',
                 'prenom' => '',
                 'numero_cni' => '',
-                'error_ocr' => 'Erreur OCR: '.$e->getMessage(),
+                'error_ocr' => 'Erreur OCR : '.$e->getMessage(),
             ]);
         }
 
