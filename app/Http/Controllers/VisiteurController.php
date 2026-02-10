@@ -11,93 +11,6 @@ use Inertia\Inertia;
 
 class VisiteurController extends Controller
 {
-    //     public function scanCni(Request $request)
-    // {
-    //     $image = $request->image;
-
-    //     if (! $image) {
-    //         return Inertia::render('Formulaire', [
-    //             'nom' => '',
-    //             'prenom' => '',
-    //             'numero_cni' => '',
-    //             'error_ocr' => 'Aucune image reçue',
-    //         ]);
-    //     }
-
-    //     $imageData = base64_decode(preg_replace('#^data:image/\w+;base64,#i', '', $image));
-    //     $tempPath = storage_path('app/tmp_cni.png');
-    //     file_put_contents($tempPath, $imageData);
-
-    //     try {
-    //         $text = (new \thiagoalessio\TesseractOCR\TesseractOCR($tempPath))
-    //             ->executable('C:\Program Files\Tesseract-OCR\tesseract.exe')
-    //             ->lang('fra')
-    //             ->config('debug_file', 'C:\wamp64\www\appli_viste\storage\logs\tesseract.log')
-    //             ->run();
-    //         // dd($text);
-
-    //     } catch (\Exception $e) {
-    //         unlink($tempPath);
-
-    //         return Inertia::render('Formulaire', [
-    //             'nom' => '',
-    //             'prenom' => '',
-    //             'numero_cni' => '',
-    //             'error_ocr' => 'Erreur OCR: '.$e->getMessage(),
-    //         ]);
-    //     }
-
-    //     unlink($tempPath);
-
-    //     // Extraction pour CNI ivoirienne
-    //     $nom = null;
-    //     $prenom = null;
-    //     $numero = null;
-
-    //     // Normaliser les retours à la ligne
-    //     $text = str_replace(["\r\n", "\r"], "\n", $text);
-
-    //     // Chercher le numéro : motif "n°" suivi de espaces puis CI et des chiffres
-    //     if (preg_match('/n°\s*(CI\d+)/i', $text, $m)) {
-    //         $numero = trim($m[1]);
-    //     }
-    //     // Sinon, chercher CI suivi de chiffres sans "n°"
-    //     elseif (preg_match('/\b(CI\d+)\b/i', $text, $m)) {
-    //         $numero = trim($m[1]);
-    //     }
-
-    //     // Chercher le nom : "Nom :" suivi de tout jusqu'au prochain saut de ligne
-    //     if (preg_match('/Nom\s*:\s*([^\n]+)/i', $text, $m)) {
-    //         $nom = trim($m[1]);
-    //     }
-
-    //     // Chercher le prénom : "Prénom(s) :" suivi de tout jusqu'au prochain saut de ligne
-    //     if (preg_match('/Prénom\(s\)\s*:\s*([^\n]+)/i', $text, $m)) {
-    //         $prenom = trim($m[1]);
-    //     }
-
-    //     // Si on n'a pas trouvé avec "Prénom(s)", on essaie avec "Prénom"
-    //     if (empty($prenom) && preg_match('/Prénom\s*:\s*([^\n]+)/i', $text, $m)) {
-    //         $prenom = trim($m[1]);
-    //     }
-
-    //     // Si on n'a pas trouvé avec "Prénom", on essaie avec "Prenom" (sans accent)
-    //     if (empty($prenom) && preg_match('/Prenom\(s\)\s*:\s*([^\n]+)/i', $text, $m)) {
-    //         $prenom = trim($m[1]);
-    //     }
-
-    //     if (empty($prenom) && preg_match('/Prenom\s*:\s*([^\n]+)/i', $text, $m)) {
-    //         $prenom = trim($m[1]);
-    //     }
-
-    //     return Inertia::render('Formulaire', [
-    //         'nom' => $nom ?? '',
-    //         'prenom' => $prenom ?? '',
-    //         'numero_cni' => $numero ?? '',
-    //         'error_ocr' => empty($nom.$prenom.$numero) ? 'CNI non détectée' : null,
-    //     ]);
-    // }
-
     public function scanCni(Request $request)
     {
         $image = $request->image;
@@ -111,20 +24,67 @@ class VisiteurController extends Controller
             ]);
         }
 
-        $imageData = base64_decode(preg_replace('#^data:image/\w+;base64,#i', '', $image));
-        $tempPath = storage_path('app/tmp_cni.png');
-        file_put_contents($tempPath, $imageData);
-
         try {
-            // === SIMPLE - NE PAS SPÉCIFIER LE CHEMIN ===
-            // La bibliothèque va chercher Tesseract automatiquement
-            $text = (new \thiagoalessio\TesseractOCR\TesseractOCR($tempPath))
-                ->lang('fra')
-                ->run();
+            // Préparer l'image pour OCR.space
+            // L'API attend un champ "base64Image" avec le préfixe
+            // Notre $image est déjà au format "data:image/png;base64, ..." donc on peut l'utiliser directement
+            // Mais vérifions qu'on a bien le préfixe
+            $base64Image = $image;
+            if (strpos($image, 'base64,') === false) {
+                // Si le préfixe n'est pas présent, on l'ajoute
+                $base64Image = 'data:image/png;base64,'.$image;
+            }
+
+            // Clé API OCR.space (à mettre dans le .env)
+            $apiKey = env('OCR_SPACE_API_KEY', 'helloworld'); // "helloworld" pour tester, mais limité à 25 requêtes par jour
+
+            // Envoyer la requête à l'API OCR.space
+            $response = Http::asForm()->post('https://api.ocr.space/parse/image', [
+                'apikey' => $apiKey,
+                'base64Image' => $base64Image,
+                'language' => 'fre', // Français
+                'isOverlayRequired' => false,
+                'filetype' => 'PNG',
+                'detectOrientation' => true,
+                'scale' => true,
+                'OCREngine' => 2, // Moteur 2 pour une meilleure précision
+            ]);
+
+            $data = $response->json();
+
+            // Vérifier si l'API a retourné une erreur
+            if ($data['IsErroredOnProcessing']) {
+                throw new \Exception('Erreur OCR.space: '.($data['ErrorMessage'][0] ?? 'Erreur inconnue'));
+            }
+
+            // Récupérer le texte
+            $text = $data['ParsedResults'][0]['ParsedText'] ?? '';
+
+            // Extraire les informations
+            $nom = '';
+            $prenom = '';
+            $numero = '';
+
+            // Logique d'extraction (à adapter selon le format de la CNI ivoirienne)
+            // Exemple simple : chercher des motifs
+            if (preg_match('/Nom\s*:?\s*([A-Z\s]+)/i', $text, $matches)) {
+                $nom = trim($matches[1]);
+            }
+            if (preg_match('/Prénom\(s\)\s*:?\s*([A-Z\s\-]+)/i', $text, $matches)) {
+                $prenom = trim($matches[1]);
+            }
+            if (preg_match('/CI\d+/', $text, $matches)) {
+                $numero = $matches[0];
+            }
+
+            return Inertia::render('Formulaire', [
+                'nom' => $nom,
+                'prenom' => $prenom,
+                'numero_cni' => $numero,
+                'error_ocr' => empty($nom.$prenom.$numero) ? 'CNI non détectée' : null,
+            ]);
 
         } catch (\Exception $e) {
-            @unlink($tempPath);
-
             return Inertia::render('Formulaire', [
                 'nom' => '',
                 'prenom' => '',
@@ -132,63 +92,6 @@ class VisiteurController extends Controller
                 'error_ocr' => 'Erreur OCR: '.$e->getMessage(),
             ]);
         }
-
-        @unlink($tempPath);
-
-        // ... (le reste du code d'extraction reste identique)
-        // === EXTRACTION SIMPLE POUR VOTRE TEXTE SPÉCIFIQUE ===
-        $lines = explode("\n", $text);
-        $nom = '';
-        $prenom = '';
-        $numero = '';
-
-        foreach ($lines as $line) {
-            $line = trim($line);
-
-            // Numéro CNI (commence par CI)
-            if (preg_match('/CI\d+/', $line, $matches)) {
-                $numero = $matches[0];
-            }
-
-            // Ligne avec "Nom" suivie ou précédée du nom
-            if (preg_match('/Nom\s*[:]?\s*([A-Z]+)/i', $line, $matches)) {
-                $nom = $matches[1];
-            } elseif (preg_match('/^[A-Z]{2,}$/', $line) && empty($nom)) {
-                // Si ligne en majuscules seule, c'est peut-être le nom
-                $nom = $line;
-            }
-
-            // Ligne avec "Prénom" ou variante
-            if (preg_match('/Prénormis\)\s*[:]?\s*(.+)/i', $line, $matches)) {
-                $prenom = trim($matches[1]);
-            } elseif (preg_match('/Prénom\(s\)\s*[:]?\s*(.+)/i', $line, $matches)) {
-                $prenom = trim($matches[1]);
-            } elseif (preg_match('/^[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*$/', $line) && empty($prenom)) {
-                // Si ligne avec majuscules/minuscules, c'est peut-être le prénom
-                $prenom = $line;
-            }
-        }
-
-        // Si nom est "DJORO" mais on a "DJORO" quelque part
-        if (empty($nom)) {
-            if (preg_match('/\b(DJORO)\b/i', $text, $matches)) {
-                $nom = $matches[1];
-            }
-        }
-
-        // Si prénom est "AKRE ROXANE MARIE AURELIE"
-        if (empty($prenom)) {
-            if (preg_match('/\b(AKRE\s+ROXANE\s+MARIE(?:\s+AURELIE)?)\b/i', $text, $matches)) {
-                $prenom = $matches[1];
-            }
-        }
-
-        return Inertia::render('Formulaire', [
-            'nom' => $nom,
-            'prenom' => $prenom,
-            'numero_cni' => $numero,
-            'error_ocr' => empty($nom.$prenom.$numero) ? 'CNI non détectée' : null,
-        ]);
     }
 
     // Afficher le formulaire
