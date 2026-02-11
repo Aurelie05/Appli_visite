@@ -14,9 +14,26 @@ Route::get('/', function () {
         'phpVersion' => PHP_VERSION,
     ]);
 })->name('welcome');
-Route::get('/dashboard', [VisiteurController::class, 'index'])
-    ->middleware(['auth', 'verified'])
+// Route::get('/', function () {
+//     // Si l'utilisateur est connecté, on peut le rediriger vers le dashboard
+//     if (Auth::check()) {
+//         return redirect()->route('welcome.index');
+//     }
+
+//     // Sinon, redirige vers la page login
+//     return redirect()->route('login');
+// });
+
+Route::middleware(['auth', 'role:admin,agent'])
+    ->get('/dashboard', [VisiteurController::class, 'index'])
     ->name('dashboard');
+
+Route::middleware(['auth', 'role:admin'])->group(function () {
+
+    Route::get('/admin/agents', [AgentController::class, 'index']);
+    Route::post('/admin/agents', [AgentController::class, 'store']);
+
+});
 
 Route::middleware('auth')->group(function () {
     Route::get('/profile', [ProfileController::class, 'edit'])->name('profile.edit');
