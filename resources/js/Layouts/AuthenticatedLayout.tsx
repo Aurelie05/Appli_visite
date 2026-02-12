@@ -68,16 +68,16 @@ export default function Authenticated({
                     </Link>
 
                     {/* Vous pouvez ajouter d'autres liens de navigation ici */}
-                    {/* Exemple :
+
                     <Link
-                        href="/dashboard"
+                        href="/admin/agents/create"
                         className="flex items-center space-x-3 w-full p-3 text-white hover:bg-blue-700 rounded-lg transition-colors mb-2"
                         onClick={closeSidebar}
                     >
                         <span className="text-lg">📊</span>
-                        <span className="font-medium">Dashboard</span>
+                        <span className="font-medium">Creation de Compte Agent</span>
                     </Link>
-                    */}
+
                 </nav>
 
                 {/* Section utilisateur en bas */}

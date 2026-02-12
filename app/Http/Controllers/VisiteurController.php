@@ -122,49 +122,62 @@ class VisiteurController extends Controller
     public function store(Request $request)
     {
         try {
+
             $request->validate([
                 'nom' => 'required|string',
                 'prenom' => 'required|string',
                 'telephone' => ['required', 'digits:10'],
                 'numero_cni' => 'required|string',
-                // Retirer 'photo_cni' de la validation
                 'personne_a_rencontrer' => 'required|string',
                 'motif_visite' => 'required|string',
             ]);
 
             \Log::info('Début de la création du visiteur');
 
+            // 🔥 Récupérer l'agent connecté
+            $agent = auth()->user()->agent;
+
+            if (! $agent) {
+                return response()->json([
+                    'error' => 'Aucun agent associé à cet utilisateur.',
+                ], 403);
+            }
+
             $visiteur = Visiteur::create([
                 'numero_badge' => 'BADGE-'.now()->format('Ymd').'-'.str_pad(Visiteur::count() + 1, 4, '0', STR_PAD_LEFT),
-                // Retirer 'photo_cni'
+
                 'nom' => $request->nom,
                 'prenom' => $request->prenom,
                 'telephone' => $request->telephone,
                 'numero_cni' => $request->numero_cni,
                 'personne_a_rencontrer' => $request->personne_a_rencontrer,
                 'motif_visite' => $request->motif_visite,
+
                 'heure_entree' => now(),
                 'heure_sortie' => null,
+
+                // ✅ LIAISON AGENT
+                'agent_id' => $agent->id,
+                'site' => $agent->site,
             ]);
 
             \Log::info('Visiteur créé avec ID: '.$visiteur->id);
 
-            \Log::info('Émission de l\'événement NouveauVisiteur');
             event(new NouveauVisiteur($visiteur));
-            \Log::info('Événement émis');
 
             return Inertia::render('Formulaire', [
-                // Retirer 'photo_cni'
                 'numero_badge' => $visiteur->numero_badge,
                 'message_success' => 'Visiteur enregistré avec succès !',
             ]);
 
         } catch (\Exception $e) {
+
             \Log::error('Erreur lors de l\'enregistrement du visiteur: '.$e->getMessage());
             \Log::error($e->getTraceAsString());
 
-            // Retourner une réponse d'erreur
-            return response()->json(['error' => 'Erreur interne du serveur'], 500);
+            return response()->json([
+                'error' => 'Erreur interne du serveur',
+            ], 500);
         }
     }
 
@@ -276,6 +289,20 @@ class VisiteurController extends Controller
             'auth' => [
                 'user' => Auth::user(), // pour Inertia PageProps
             ],
+        ]);
+    }
+
+    public function visiteursParSite()
+    {
+        // Récupère tous les visiteurs triés par site
+        $visiteursSud = Visiteur::where('site', 'INPHB_SUD')->get();
+        $visiteursCentre = Visiteur::where('site', 'INPHB_CENTRE')->get();
+        $visiteursNord = Visiteur::where('site', 'INPHB_NORD')->get();
+
+        return Inertia::render('ParSite', [
+            'sud' => $visiteursSud,
+            'centre' => $visiteursCentre,
+            'nord' => $visiteursNord,
         ]);
     }
 

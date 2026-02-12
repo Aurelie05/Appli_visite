@@ -10,11 +10,13 @@ class Visiteur extends Model
         'numero_badge',
         'nom',
         'prenom',
-        'numero_cni',
         'telephone',
+        'numero_cni',
         'personne_a_rencontrer',
         'motif_visite',
         'heure_entree',
         'heure_sortie',
+        'agent_id',
+        'site',
     ];
 }

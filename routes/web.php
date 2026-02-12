@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\AgentController;
 use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\VisiteurController;
 use Illuminate\Foundation\Application;
@@ -24,7 +25,7 @@ Route::get('/', function () {
 //     return redirect()->route('login');
 // });
 
-Route::middleware(['auth', 'role:admin,agent'])
+Route::middleware(['auth', 'role:admin'])
     ->get('/dashboard', [VisiteurController::class, 'index'])
     ->name('dashboard');
 
@@ -59,3 +60,17 @@ Route::get('/visiteurs/list', [VisiteurController::class, 'visiteursList'])->nam
 Route::post('/visiteur/sortie/{id}', [VisiteurController::class, 'finaliserSortie'])->name('visiteur.sortie');
 
 Route::post('/scan-cni', [VisiteurController::class, 'scanCni']);
+
+Route::middleware(['auth', 'role:admin'])->group(function () {
+
+    Route::get('/admin/agents', [AgentController::class, 'index'])->name('agents.index');
+
+    Route::post('/admin/agents', [AgentController::class, 'store'])->name('agents.store');
+
+    Route::delete('/admin/agents/{id}', [AgentController::class, 'destroy'])->name('agents.destroy');
+
+    // Afficher le formulaire de création d'agent
+    Route::get('/admin/agents/create', [AgentController::class, 'create'])
+        ->name('agents.create');
+});
+Route::middleware(['auth', 'role:admin'])->get('/par-site', [VisiteurController::class, 'visiteursParSite'])->name('visiteurs.parSite');
