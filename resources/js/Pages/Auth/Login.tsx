@@ -164,7 +164,7 @@ export default function Login({
                             </div>
 
                             {/* Lien vers l'inscription */}
-                            <div className="text-center pt-4 border-t border-blue-100">
+                            {/* <div className="text-center pt-4 border-t border-blue-100">
                                 <p className="text-sm text-gray-600">
                                     Pas encore de compte ?{' '}
                                     <Link
@@ -174,7 +174,7 @@ export default function Login({
                                         Créer un compte
                                     </Link>
                                 </p>
-                            </div>
+                            </div> */}
                         </form>
                     </div>
 
