@@ -1,35 +1,56 @@
-import React from "react";
-import { usePage } from "@inertiajs/react";
+import React, { useState } from "react";
+import { usePage, router } from '@inertiajs/react';
+import { PageProps } from '@/types';
 import { Inertia } from "@inertiajs/inertia";
 import Authenticated from "@/Layouts/AuthenticatedLayout";
 
-// Définir le type de l'utilisateur
+// Définition du type Visiteur (avec le champ site)
+interface Visiteur {
+    id: number;
+    numero_badge: string;
+    nom: string;
+    prenom: string;
+    telephone: string;
+    numero_cni: string;
+    personne_a_rencontrer: string;
+    motif_visite: string;
+    heure_entree: string;
+    heure_sortie?: string | null;
+    site: string; // INPHB_SUD, INPHB_CENTRE, INPHB_NORD
+}
+
 interface User {
     id: number;
     name: string;
     email: string;
 }
 
-// Définir les props Inertia pour cette page
-interface ListeVisiteurProps {
+// Props étend PageProps pour satisfaire la contrainte de Inertia
+interface Props extends PageProps {
     auth: { user: User };
-    visiteurs: {
-        id: number;
-        numero_badge: string;
-        nom: string;
-        prenom: string;
-        telephone: string;
-        numero_cni: string;
-        personne_a_rencontrer: string;
-        motif_visite: string;
-        heure_entree: string;
-        heure_sortie?: string | null;
-    }[];
-    [key: string]: any;
+    sud: Visiteur[];
+    centre: Visiteur[];
+    nord: Visiteur[];
 }
 
-export default function ListeVisiteur() {
-    const { auth, visiteurs } = usePage<ListeVisiteurProps>().props;
+type FiltreSite = "tous" | "sud" | "centre" | "nord";
+
+export default function ListeVisiteursParSite() {
+    const props = usePage<Props>().props;
+    console.log('Props reçues :', props);
+    const { auth, sud = [], centre = [], nord = [] } = props;
+
+    const [filtre, setFiltre] = useState<FiltreSite>("tous");
+
+    // Combinaison des visiteurs selon le filtre
+    const visiteursFiltres = (() => {
+        switch (filtre) {
+            case "sud": return sud;
+            case "centre": return centre;
+            case "nord": return nord;
+            default: return [...sud, ...centre, ...nord];
+        }
+    })();
 
     const handleSortie = (id: number) => {
         if (confirm("Confirmer la sortie du visiteur ?")) {
@@ -62,18 +83,43 @@ export default function ListeVisiteur() {
         );
     };
 
+    // Libellé du site pour l'affichage
+    const getSiteLibelle = (site: string) => {
+        switch (site) {
+            case "INPHB_SUD": return "Sud";
+            case "INPHB_CENTRE": return "Centre";
+            case "INPHB_NORD": return "Nord";
+            default: return site;
+        }
+    };
+
+    // Badge de site
+    const getSiteBadge = (site: string) => {
+        const couleurs = {
+            INPHB_SUD: "bg-blue-100 text-blue-800",
+            INPHB_CENTRE: "bg-purple-100 text-purple-800",
+            INPHB_NORD: "bg-indigo-100 text-indigo-800",
+        };
+        const couleur = couleurs[site as keyof typeof couleurs] || "bg-gray-100 text-gray-800";
+        return (
+            <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${couleur}`}>
+                {getSiteLibelle(site)}
+            </span>
+        );
+    };
+
     return (
         <Authenticated>
             <div className="py-4 sm:py-6">
                 <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8">
-                    {/* En-tête de page */}
                     <div className="bg-white overflow-hidden shadow-xl sm:rounded-lg border border-blue-50">
+                        {/* En-tête */}
                         <div className="p-4 sm:p-6 bg-gradient-to-r from-blue-600 to-blue-700 text-white">
                             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center space-y-3 sm:space-y-0">
                                 <div>
-                                    <h1 className="text-xl sm:text-2xl font-bold">Gestion des Visiteurs</h1>
+                                    <h1 className="text-xl sm:text-2xl font-bold">Visiteurs par site</h1>
                                     <p className="text-blue-100 mt-1 text-sm sm:text-base">
-                                        Liste complète des visiteurs enregistrés
+                                        Filtrez par site pour consulter les visiteurs
                                     </p>
                                 </div>
                                 <div className="text-right">
@@ -81,6 +127,46 @@ export default function ListeVisiteur() {
                                     <p className="font-semibold text-sm sm:text-base">{auth.user.name}</p>
                                 </div>
                             </div>
+                        </div>
+
+                        {/* Filtres par site */}
+                        <div className="px-4 sm:px-6 pt-4 sm:pt-6 flex flex-wrap gap-2">
+                            <button
+                                onClick={() => setFiltre("tous")}
+                                className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${filtre === "tous"
+                                    ? "bg-blue-600 text-white shadow-md"
+                                    : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                                    }`}
+                            >
+                                Tous les sites
+                            </button>
+                            <button
+                                onClick={() => setFiltre("sud")}
+                                className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${filtre === "sud"
+                                    ? "bg-blue-600 text-white shadow-md"
+                                    : "bg-blue-50 text-blue-700 hover:bg-blue-100"
+                                    }`}
+                            >
+                                Sud
+                            </button>
+                            <button
+                                onClick={() => setFiltre("centre")}
+                                className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${filtre === "centre"
+                                    ? "bg-blue-600 text-white shadow-md"
+                                    : "bg-purple-50 text-purple-700 hover:bg-purple-100"
+                                    }`}
+                            >
+                                Centre
+                            </button>
+                            <button
+                                onClick={() => setFiltre("nord")}
+                                className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${filtre === "nord"
+                                    ? "bg-blue-600 text-white shadow-md"
+                                    : "bg-indigo-50 text-indigo-700 hover:bg-indigo-100"
+                                    }`}
+                            >
+                                Nord
+                            </button>
                         </div>
 
                         {/* Statistiques rapides */}
@@ -93,8 +179,8 @@ export default function ListeVisiteur() {
                                         </svg>
                                     </div>
                                     <div className="ml-3">
-                                        <p className="text-xs sm:text-sm font-medium text-gray-600">Total visiteurs</p>
-                                        <p className="text-xl sm:text-2xl font-bold text-gray-900">{visiteurs.length}</p>
+                                        <p className="text-xs sm:text-sm font-medium text-gray-600">Visiteurs affichés</p>
+                                        <p className="text-xl sm:text-2xl font-bold text-gray-900">{visiteursFiltres.length}</p>
                                     </div>
                                 </div>
                             </div>
@@ -107,9 +193,9 @@ export default function ListeVisiteur() {
                                         </svg>
                                     </div>
                                     <div className="ml-3">
-                                        <p className="text-xs sm:text-sm font-medium text-gray-600">Présents actuellement</p>
+                                        <p className="text-xs sm:text-sm font-medium text-gray-600">Présents</p>
                                         <p className="text-xl sm:text-2xl font-bold text-gray-900">
-                                            {visiteurs.filter(v => !v.heure_sortie).length}
+                                            {visiteursFiltres.filter(v => !v.heure_sortie).length}
                                         </p>
                                     </div>
                                 </div>
@@ -123,21 +209,24 @@ export default function ListeVisiteur() {
                                         </svg>
                                     </div>
                                     <div className="ml-3">
-                                        <p className="text-xs sm:text-sm font-medium text-gray-600">Sortis aujourd'hui</p>
+                                        <p className="text-xs sm:text-sm font-medium text-gray-600">Sortis</p>
                                         <p className="text-xl sm:text-2xl font-bold text-gray-900">
-                                            {visiteurs.filter(v => v.heure_sortie).length}
+                                            {visiteursFiltres.filter(v => v.heure_sortie).length}
                                         </p>
                                     </div>
                                 </div>
                             </div>
                         </div>
 
-                        {/* Tableau des visiteurs - Version Desktop */}
+                        {/* Tableau version desktop */}
                         <div className="hidden lg:block p-4 sm:p-6">
                             <div className="overflow-x-auto">
                                 <table className="min-w-full divide-y divide-gray-200">
                                     <thead className="bg-gray-50">
                                         <tr>
+                                            <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                                Site
+                                            </th>
                                             <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                                                 Badge
                                             </th>
@@ -165,8 +254,11 @@ export default function ListeVisiteur() {
                                         </tr>
                                     </thead>
                                     <tbody className="bg-white divide-y divide-gray-200">
-                                        {visiteurs.map((v) => (
+                                        {visiteursFiltres.map((v) => (
                                             <tr key={v.id} className="hover:bg-blue-50 transition-colors duration-150">
+                                                <td className="px-4 py-4 whitespace-nowrap">
+                                                    {getSiteBadge(v.site)}
+                                                </td>
                                                 <td className="px-4 py-4 whitespace-nowrap">
                                                     <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
                                                         {v.numero_badge}
@@ -212,13 +304,14 @@ export default function ListeVisiteur() {
                             </div>
                         </div>
 
-                        {/* Version Mobile */}
+                        {/* Version mobile */}
                         <div className="lg:hidden p-4">
                             <div className="space-y-4">
-                                {visiteurs.map((v) => (
+                                {visiteursFiltres.map((v) => (
                                     <div key={v.id} className="bg-white border border-gray-200 rounded-lg shadow-sm p-4">
                                         <div className="flex justify-between items-start mb-3">
-                                            <div className="flex items-center space-x-2">
+                                            <div className="flex flex-wrap items-center gap-2">
+                                                {getSiteBadge(v.site)}
                                                 <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
                                                     Badge: {v.numero_badge}
                                                 </span>
@@ -278,13 +371,17 @@ export default function ListeVisiteur() {
                             </div>
                         </div>
 
-                        {visiteurs.length === 0 && (
+                        {visiteursFiltres.length === 0 && (
                             <div className="text-center py-8 sm:py-12">
                                 <svg className="mx-auto h-8 w-8 sm:h-12 sm:w-12 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.172 16.172a4 4 0 015.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                                 </svg>
                                 <h3 className="mt-2 text-sm font-medium text-gray-900">Aucun visiteur</h3>
-                                <p className="mt-1 text-sm text-gray-500">Aucun visiteur n'a été enregistré aujourd'hui.</p>
+                                <p className="mt-1 text-sm text-gray-500">
+                                    {filtre === "tous"
+                                        ? "Aucun visiteur enregistré sur l'ensemble des sites."
+                                        : `Aucun visiteur pour le site ${filtre === "sud" ? "Sud" : filtre === "centre" ? "Centre" : "Nord"}.`}
+                                </p>
                             </div>
                         )}
                     </div>

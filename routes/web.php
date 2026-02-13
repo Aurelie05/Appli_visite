@@ -14,26 +14,17 @@ Route::get('/', function () {
         'laravelVersion' => Application::VERSION,
         'phpVersion' => PHP_VERSION,
     ]);
-})->name('welcome');
-// Route::get('/', function () {
-//     // Si l'utilisateur est connecté, on peut le rediriger vers le dashboard
-//     if (Auth::check()) {
-//         return redirect()->route('welcome.index');
-//     }
+})->middleware('auth')->name('welcome');
 
-//     // Sinon, redirige vers la page login
-//     return redirect()->route('login');
-// });
-
-Route::middleware(['auth', 'role:admin'])
+// Dashboard accessible aux admin et superviseur
+Route::middleware(['auth', 'role:admin,superviseur'])
     ->get('/dashboard', [VisiteurController::class, 'index'])
     ->name('dashboard');
 
-Route::middleware(['auth', 'role:admin'])->group(function () {
-
+// Groupe pour les agents (admin et superviseur)
+Route::middleware(['auth', 'role:admin,superviseur'])->group(function () {
     Route::get('/admin/agents', [AgentController::class, 'index']);
     Route::post('/admin/agents', [AgentController::class, 'store']);
-
 });
 
 Route::middleware('auth')->group(function () {
@@ -53,24 +44,24 @@ Route::get('/formulaire', [VisiteurController::class, 'showForm'])->name('formul
 Route::post('/visiteurs', [VisiteurController::class, 'store']);
 Route::post('/upload-photo', [VisiteurController::class, 'uploadPhoto']);
 
-// Liste des visiteurs (GET)
-Route::get('/visiteurs/list', [VisiteurController::class, 'visiteursList'])->name('visiteurs.list');
+// Liste des visiteurs (admin et superviseur)
+Route::middleware(['auth', 'role:admin,superviseur'])->get('/visiteurs/list', [VisiteurController::class, 'visiteursParSite'])->name('visiteurs.parSite');
 
-// Finaliser sortie (POST)
+// Finaliser sortie (accessible à tous les utilisateurs authentifiés, car utilisé par les agents)
 Route::post('/visiteur/sortie/{id}', [VisiteurController::class, 'finaliserSortie'])->name('visiteur.sortie');
 
 Route::post('/scan-cni', [VisiteurController::class, 'scanCni']);
 
-Route::middleware(['auth', 'role:admin'])->group(function () {
-
+// Gestion des agents (admin et superviseur)
+Route::middleware(['auth', 'role:admin,superviseur'])->group(function () {
     Route::get('/admin/agents', [AgentController::class, 'index'])->name('agents.index');
-
     Route::post('/admin/agents', [AgentController::class, 'store'])->name('agents.store');
-
     Route::delete('/admin/agents/{id}', [AgentController::class, 'destroy'])->name('agents.destroy');
-
-    // Afficher le formulaire de création d'agent
-    Route::get('/admin/agents/create', [AgentController::class, 'create'])
-        ->name('agents.create');
+    Route::get('/admin/agents/create', [AgentController::class, 'create'])->name('agents.create');
 });
-Route::middleware(['auth', 'role:admin'])->get('/par-site', [VisiteurController::class, 'visiteursParSite'])->name('visiteurs.parSite');
+
+// Par site (admin et superviseur) – Note : cette route est un doublon de '/visiteurs/list', à vérifier
+Route::middleware(['auth', 'role:admin,superviseur'])->get('/par-site', [VisiteurController::class, 'visiteursParSite'])->name('visiteurs.parSite');
+
+// File d'attente accessible à tous les utilisateurs authentifiés (agents, admins, superviseurs)
+Route::middleware(['auth'])->get('/file-attente', [VisiteurController::class, 'fileAttente'])->name('file-attente');

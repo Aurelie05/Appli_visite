@@ -6,7 +6,6 @@ use App\Events\NouveauVisiteur;
 use App\Models\Visiteur;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Http;
 use Inertia\Inertia;
 
@@ -247,9 +246,7 @@ class VisiteurController extends Controller
             });
 
         return Inertia::render('Dashboard', [
-            'auth' => [
-                'user' => Auth::user(),
-            ],
+
             'stats' => [
                 'daily' => $dailyVisits,
                 'weekly' => $weeklyVisits,
@@ -264,42 +261,38 @@ class VisiteurController extends Controller
 
     }
 
-    // GET - Affiche la liste
-    public function visiteursList()
+    public function fileAttente()
     {
-        $visiteurs = Visiteur::orderBy('heure_entree', 'desc')
-            ->get()
-            ->map(function ($v) {
-                return [
-                    'id' => $v->id,
-                    'numero_badge' => $v->numero_badge,
-                    'nom' => $v->nom,
-                    'prenom' => $v->prenom,
-                    'telephone' => $v->telephone,
-                    'numero_cni' => $v->numero_cni,
-                    'personne_a_rencontrer' => $v->personne_a_rencontrer,
-                    'motif_visite' => $v->motif_visite,
-                    'heure_entree' => $v->heure_entree, // date brute
-                    'heure_sortie' => $v->heure_sortie, // date brute ou null
-                ];
-            });
+        $user = auth()->user();
+        $agent = $user->agent;
 
-        return Inertia::render('ListeVisiteur', [ // <-- le nom du composant TSX
+        if ($agent) {
+            // Agent : ses propres visiteurs présents
+            $visiteurs = Visiteur::where('agent_id', $agent->id)
+                ->whereNull('heure_sortie')
+                ->orderBy('heure_entree', 'desc')
+                ->get()
+                ->toArray();
+        } else {
+            // Admin : tous les visiteurs présents
+            $visiteurs = Visiteur::whereNull('heure_sortie')
+                ->orderBy('heure_entree', 'desc')
+                ->get()
+                ->toArray();
+        }
+
+        return Inertia::render('FileAttente', [
             'visiteurs' => $visiteurs,
-            'auth' => [
-                'user' => Auth::user(), // pour Inertia PageProps
-            ],
         ]);
     }
 
     public function visiteursParSite()
     {
-        // Récupère tous les visiteurs triés par site
-        $visiteursSud = Visiteur::where('site', 'INPHB_SUD')->get();
-        $visiteursCentre = Visiteur::where('site', 'INPHB_CENTRE')->get();
-        $visiteursNord = Visiteur::where('site', 'INPHB_NORD')->get();
+        $visiteursSud = Visiteur::where('site', 'INPHB_SUD')->get()->toArray();
+        $visiteursCentre = Visiteur::where('site', 'INPHB_CENTRE')->get()->toArray();
+        $visiteursNord = Visiteur::where('site', 'INPHB_NORD')->get()->toArray();
 
-        return Inertia::render('ParSite', [
+        return Inertia::render('ListeVisiteur', [
             'sud' => $visiteursSud,
             'centre' => $visiteursCentre,
             'nord' => $visiteursNord,
