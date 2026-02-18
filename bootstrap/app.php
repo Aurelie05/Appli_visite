@@ -13,7 +13,7 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withSchedule(function (Schedule $schedule) {
-        $schedule->command('visiteurs:archiver')->everyMinute();
+        $schedule->command('visiteurs:archiver')->weeklyOn(7, '23:59');
 
     })
     ->withMiddleware(function (Middleware $middleware): void {

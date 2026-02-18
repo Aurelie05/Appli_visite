@@ -3,9 +3,11 @@
 namespace App\Http\Controllers;
 
 use App\Events\NouveauVisiteur;
-use App\Models\Visiteur;
+use App\Models\ArchiveVisiteur;
+use App\Models\Visiteur; // si utilisé
 use Carbon\Carbon;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Inertia\Inertia;
 
@@ -188,7 +190,7 @@ class VisiteurController extends Controller
         $startOfMonth = Carbon::now()->startOfMonth();
         $endOfMonth = Carbon::now()->endOfMonth();
 
-        // Calcul des périodes précédentes pour les tendances
+        // Périodes précédentes pour les tendances
         $yesterday = Carbon::yesterday();
         $lastWeekStart = Carbon::now()->subWeek()->startOfWeek();
         $lastWeekEnd = Carbon::now()->subWeek()->endOfWeek();
@@ -210,16 +212,35 @@ class VisiteurController extends Controller
         $weeklyTrend = $lastWeekVisits > 0 ? (($weeklyVisits - $lastWeekVisits) / $lastWeekVisits) * 100 : ($weeklyVisits > 0 ? 100 : 0);
         $monthlyTrend = $lastMonthVisits > 0 ? (($monthlyVisits - $lastMonthVisits) / $lastMonthVisits) * 100 : ($monthlyVisits > 0 ? 100 : 0);
 
-        // Données pour le graphique hebdomadaire - Correction des jours en français
+        // --- NOUVELLES DONNÉES ---
+
+        // Visites par site aujourd'hui
+        $dailyBySite = Visiteur::whereDate('heure_entree', $today)
+            ->select('site', DB::raw('count(*) as count'))
+            ->groupBy('site')
+            ->get();
+
+        // Visites par site cette semaine
+        $weeklyBySite = Visiteur::whereBetween('heure_entree', [$startOfWeek, $endOfWeek])
+            ->select('site', DB::raw('count(*) as count'))
+            ->groupBy('site')
+            ->get();
+
+        // Nombre total d'archives (à adapter si votre modèle d'archive est différent)
+        $archivedCount = ArchiveVisiteur::count(); // Assurez-vous que ce modèle existe
+
+        // Statistiques pour le diagramme circulaire (ici : total des visites par site, toutes périodes)
+        $siteStats = Visiteur::select('site', DB::raw('count(*) as count'))
+            ->groupBy('site')
+            ->get();
+
+        // Données pour le graphique hebdomadaire
         $weeklyData = collect(range(0, 6))->map(function ($i) {
             $day = Carbon::now()->startOfWeek()->addDays($i);
-
-            // Conversion des jours anglais vers français
             $daysFr = [
                 'Mon' => 'Lun', 'Tue' => 'Mar', 'Wed' => 'Mer',
                 'Thu' => 'Jeu', 'Fri' => 'Ven', 'Sat' => 'Sam', 'Sun' => 'Dim',
             ];
-
             $dayEn = $day->format('D');
             $dayFr = $daysFr[$dayEn] ?? $dayEn;
 
@@ -230,10 +251,10 @@ class VisiteurController extends Controller
             ];
         });
 
-        // 5 visiteurs récents
+        // 5 visiteurs récents avec le champ 'site' ajouté
         $recentVisitors = Visiteur::orderBy('heure_entree', 'desc')
             ->take(5)
-            ->get()
+            ->get(['id', 'nom', 'prenom', 'personne_a_rencontrer', 'motif_visite', 'heure_entree', 'site'])
             ->map(function ($visiteur) {
                 return [
                     'id' => $visiteur->id,
@@ -241,12 +262,12 @@ class VisiteurController extends Controller
                     'prenom' => $visiteur->prenom,
                     'personne_a_rencontrer' => $visiteur->personne_a_rencontrer,
                     'motif_visite' => $visiteur->motif_visite,
-                    'heure_entree' => $visiteur->heure_entree, // <-- on envoie la date brute
+                    'heure_entree' => $visiteur->heure_entree,
+                    'site' => $visiteur->site, // ← AJOUTÉ
                 ];
             });
 
         return Inertia::render('Dashboard', [
-
             'stats' => [
                 'daily' => $dailyVisits,
                 'weekly' => $weeklyVisits,
@@ -254,11 +275,15 @@ class VisiteurController extends Controller
                 'dailyTrend' => round($dailyTrend, 1),
                 'weeklyTrend' => round($weeklyTrend, 1),
                 'monthlyTrend' => round($monthlyTrend, 1),
+                // --- NOUVELLES STATS ---
+                'dailyBySite' => $dailyBySite,
+                'weeklyBySite' => $weeklyBySite,
+                'archivedCount' => $archivedCount,
+                'siteStats' => $siteStats,
             ],
             'weeklyData' => $weeklyData,
             'recentVisitors' => $recentVisitors,
         ]);
-
     }
 
     public function fileAttente()

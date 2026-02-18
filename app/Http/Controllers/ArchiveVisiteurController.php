@@ -2,7 +2,7 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\Visiteurs_archives;
+use App\Models\ArchiveVisiteur;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Http\Request; // Pour l'export PDF
 use Inertia\Inertia; // ✅ Remplace "use PDF;"
@@ -14,7 +14,7 @@ class ArchiveVisiteurController extends Controller
         $site = $request->get('site', null);
         $week = $request->get('week', null);
 
-        $query = Visiteurs_archives::query(); // ← utilise le nom correct du modèle
+        $query = ArchiveVisiteur::query(); // ← utilise le nom correct du modèle
 
         if ($site) {
             $query->where('site', $site);
@@ -26,7 +26,7 @@ class ArchiveVisiteurController extends Controller
 
         $visiteurs = $query->orderBy('archived_at', 'desc')->paginate(20)->withQueryString();
 
-        $weeks = Visiteurs_archives::selectRaw('DISTINCT WEEK(archived_at,1) as week_number')
+        $weeks = ArchiveVisiteur::selectRaw('DISTINCT WEEK(archived_at,1) as week_number')
             ->orderBy('week_number', 'desc')
             ->pluck('week_number');
 
@@ -44,7 +44,7 @@ class ArchiveVisiteurController extends Controller
         $site = $request->get('site', null);
         $week = $request->get('week', null);
 
-        $query = Visiteurs_archives::query(); // ← nom correct
+        $query = ArchiveVisiteur::query(); // ← nom correct
 
         if ($site) {
             $query->where('site', $site);

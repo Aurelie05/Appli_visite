@@ -5,7 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Factories\HasFactory; // ✅ bien importer
 use Illuminate\Database\Eloquent\Model;
 
-class Visiteurs_archives extends Model
+class ArchiveVisiteur extends Model
 {
     use HasFactory; // ✅ utiliser le trait correct
 
