@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\AgentController;
+use App\Http\Controllers\ArchiveVisiteurController;
 use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\VisiteurController;
 use Illuminate\Foundation\Application;
@@ -65,3 +66,8 @@ Route::middleware(['auth', 'role:admin,superviseur'])->get('/par-site', [Visiteu
 
 // File d'attente accessible à tous les utilisateurs authentifiés (agents, admins, superviseurs)
 Route::middleware(['auth'])->get('/file-attente', [VisiteurController::class, 'fileAttente'])->name('file-attente');
+
+Route::middleware(['auth', 'role:admin,superviseur'])->group(function () {
+    Route::get('/admin/archives', [ArchiveVisiteurController::class, 'index'])->name('archives.index');
+    Route::get('/admin/archives/export-pdf', [ArchiveVisiteurController::class, 'exportPdf'])->name('archives.exportPdf');
+});

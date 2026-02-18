@@ -137,6 +137,16 @@ export default function Authenticated({ header, children }: PropsWithChildren<{ 
                             <span className="font-medium">Création de compte agent</span>
                         </Link>
                     )}
+                    {canManage && (
+                        <Link
+                            href="/admin/archives"
+                            className="flex items-center space-x-3 w-full p-3 text-white hover:bg-blue-700 rounded-lg transition-colors mb-2"
+                            onClick={closeSidebar}
+                        >
+                            <span className="text-lg">📁</span>
+                            <span className="font-medium">Archives</span>
+                        </Link>
+                    )}
                 </nav>
 
                 {/* Section utilisateur en bas */}

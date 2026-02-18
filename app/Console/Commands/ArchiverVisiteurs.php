@@ -2,9 +2,11 @@
 
 namespace App\Console\Commands;
 
+use App\Models\ArchiveVisiteur;
 use App\Models\Visiteur;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 
 class ArchiverVisiteurs extends Command
 {
@@ -20,7 +22,7 @@ class ArchiverVisiteurs extends Command
      *
      * @var string
      */
-    protected $description = 'Archive les visiteurs sortis depuis plus de 7 jours';
+    protected $description = 'Archive les visiteurs sortis depuis plus de 7 jours (ou plus ancien)';
 
     /**
      * Execute the console command.
@@ -29,16 +31,28 @@ class ArchiverVisiteurs extends Command
     {
         $this->info('Début archivage...');
 
-        DB::transaction(function () {
+        // Ajuste la période pour tester facilement : subDay() = 1 jour, subWeek() = 7 jours
+        $periode = now()->subWeek();
+        // $periode = now()->subDay();
 
-            $anciensVisiteurs = Visiteur::whereNotNull('heure_sortie')
-                ->where('heure_sortie', '<', now()->subWeek())
-                ->get();
+        $anciensVisiteurs = Visiteur::whereNotNull('heure_sortie')
+            ->where('heure_sortie', '<', $periode)
+            ->get();
+
+        $this->info('Visiteurs trouvés : '.$anciensVisiteurs->count());
+        Log::info('ArchiverVisiteurs - Visiteurs trouvés : '.$anciensVisiteurs->count());
+
+        if ($anciensVisiteurs->isEmpty()) {
+            $this->info('Aucun visiteur à archiver pour le moment.');
+
+            return;
+        }
+
+        DB::transaction(function () use ($anciensVisiteurs) {
 
             foreach ($anciensVisiteurs as $visiteur) {
-
-                // Insert dans la table visiteurs_archives
-                DB::table('visiteurs_archives')->insert([
+                // Crée l'entrée dans la table d'archives
+                ArchiveVisiteur::create([
                     'original_id' => $visiteur->id,
                     'numero_badge' => $visiteur->numero_badge,
                     'nom' => $visiteur->nom,
@@ -55,13 +69,13 @@ class ArchiverVisiteurs extends Command
                     'updated_at' => now(),
                 ]);
 
+                // Supprime l'original
                 $visiteur->delete();
             }
 
-            $this->info(count($anciensVisiteurs).' visiteurs archivés.');
-            \Log::info('Tâche visiteurs:archiver exécutée à '.now().' | Nombre : '.count($anciensVisiteurs));
         });
 
-        $this->info('Archivage terminé avec succès.');
+        $this->info('Archivage terminé avec succès. Nombre de visiteurs archivés : '.$anciensVisiteurs->count());
+        Log::info('ArchiverVisiteurs - Archivage terminé. Nombre : '.$anciensVisiteurs->count());
     }
 }
