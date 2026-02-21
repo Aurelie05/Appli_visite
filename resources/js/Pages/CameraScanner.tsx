@@ -15,37 +15,83 @@ export default function AutoScanCNI() {
     const [detected, setDetected] = useState(false);
     const [isScanning, setIsScanning] = useState(true);
     const [debug, setDebug] = useState<string>("");
+    // Nouveaux états pour la gestion des caméras
+    const [devices, setDevices] = useState<MediaDeviceInfo[]>([]);
+    const [selectedDeviceIndex, setSelectedDeviceIndex] = useState(0);
 
     // Dimensions du cadre de scan
     const FRAME_WIDTH = 400;
     const FRAME_HEIGHT = 250;
 
-    // Démarrer la caméra
-    useEffect(() => {
-        navigator.mediaDevices
-            .getUserMedia({
-                video: {
-                    facingMode: "environment",
-                    width: { ideal: 1920 },
-                    height: { ideal: 1080 },
-                },
-            })
-            .then((mediaStream) => {
-                setStream(mediaStream);
-                if (videoRef.current) {
-                    videoRef.current.srcObject = mediaStream;
-                    videoRef.current.play();
-                }
-            })
-            .catch((err) => {
-                console.error("Erreur caméra:", err);
-                setDebug("Erreur caméra: " + err.message);
-            });
+    // Fonction pour démarrer la caméra avec un deviceId spécifique (ou facingMode par défaut)
+    const startCamera = async (deviceId?: string) => {
+        // Arrêter l'ancien flux s'il existe
+        if (stream) {
+            stream.getTracks().forEach(track => track.stop());
+        }
 
-        return () => {
-            stream?.getTracks().forEach((t) => t.stop());
+        try {
+            const constraints: MediaStreamConstraints = {
+                video: deviceId
+                    ? { deviceId: { exact: deviceId } }
+                    : {
+                        facingMode: "environment",
+                        width: { ideal: 1920 },
+                        height: { ideal: 1080 },
+                    },
+            };
+
+            const mediaStream = await navigator.mediaDevices.getUserMedia(constraints);
+            setStream(mediaStream);
+
+            if (videoRef.current) {
+                videoRef.current.srcObject = mediaStream;
+                videoRef.current.play();
+            }
+        } catch (err) {
+            console.error("Erreur caméra:", err);
+            setDebug("Erreur caméra: " + (err as Error).message);
+        }
+    };
+
+    // Énumérer les caméras disponibles au montage
+    useEffect(() => {
+        const getDevices = async () => {
+            // Demander d'abord la permission pour obtenir la liste des périphériques
+            try {
+                // Petite astuce : demander un flux temporaire pour avoir la permission
+                const tempStream = await navigator.mediaDevices.getUserMedia({ video: true });
+                tempStream.getTracks().forEach(track => track.stop()); // On le stoppe immédiatement
+
+                const allDevices = await navigator.mediaDevices.enumerateDevices();
+                const videoDevices = allDevices.filter(device => device.kind === "videoinput");
+                setDevices(videoDevices);
+
+                // Si des caméras sont trouvées, démarrer avec la première (ou celle qui correspond à environment)
+                if (videoDevices.length > 0) {
+                    // Essayer de trouver une caméra arrière par défaut (souvent la première)
+                    // Sur certains téléphones, l'infrarouge peut être listé, on démarre simplement avec la première
+                    await startCamera(videoDevices[0].deviceId);
+                } else {
+                    // Fallback : démarrer sans deviceId (facingMode environment)
+                    await startCamera();
+                }
+            } catch (err) {
+                console.error("Erreur lors de l'énumération des caméras:", err);
+                // Fallback
+                startCamera();
+            }
         };
-    }, []);
+
+        getDevices();
+
+        // Nettoyage au démontage
+        return () => {
+            if (stream) {
+                stream.getTracks().forEach(track => track.stop());
+            }
+        };
+    }, []); // Exécuté une seule fois
 
     // Dessiner le cadre sur l'overlay quand la vidéo est prête
     useEffect(() => {
@@ -87,9 +133,9 @@ export default function AutoScanCNI() {
 
         const animationId = requestAnimationFrame(drawFrame);
         return () => cancelAnimationFrame(animationId);
-    }, [videoRef.current]);
+    }, [videoRef.current]); // Redessine si la vidéo change
 
-    // Capture et envoi
+    // Capture et envoi (inchangé)
     useEffect(() => {
         if (!videoRef.current || !canvasRef.current || !overlayRef.current) return;
         if (detected || !isScanning) return;
@@ -102,21 +148,18 @@ export default function AutoScanCNI() {
 
             if (video.videoWidth === 0 || video.videoHeight === 0) return;
 
-            // === AMÉLIORATION : Extraire uniquement la zone du cadre ===
+            // Extraire uniquement la zone du cadre
             const ctx = canvas.getContext("2d");
             if (!ctx) return;
 
-            // Calculer les coordonnées du cadre dans l'image vidéo
             const videoWidth = video.videoWidth;
             const videoHeight = video.videoHeight;
             const frameX = (videoWidth - FRAME_WIDTH) / 2;
             const frameY = (videoHeight - FRAME_HEIGHT) / 2;
 
-            // Redimensionner le canvas de capture à la taille du cadre
             canvas.width = FRAME_WIDTH;
             canvas.height = FRAME_HEIGHT;
 
-            // Dessiner uniquement la zone du cadre
             ctx.drawImage(
                 video,
                 frameX,
@@ -129,19 +172,16 @@ export default function AutoScanCNI() {
                 FRAME_HEIGHT
             );
 
-            // === AMÉLIORATION : Améliorer le contraste de l'image ===
+            // Améliorer le contraste
             const imageData = ctx.getImageData(0, 0, FRAME_WIDTH, FRAME_HEIGHT);
             const data = imageData.data;
 
-            // Augmenter le contraste (simple ajustement)
             for (let i = 0; i < data.length; i += 4) {
                 let r = data[i];
                 let g = data[i + 1];
                 let b = data[i + 2];
 
-                // Conversion en niveaux de gris
                 let gray = 0.34 * r + 0.5 * g + 0.16 * b;
-                // Augmenter le contraste
                 gray = gray > 128 ? Math.min(255, gray + 40) : Math.max(0, gray - 40);
 
                 data[i] = gray;
@@ -150,7 +190,6 @@ export default function AutoScanCNI() {
             }
             ctx.putImageData(imageData, 0, 0);
 
-            // Convertir en base64 avec compression JPEG (meilleure qualité/poids)
             const base64 = canvas.toDataURL("image/jpeg", 0.9);
 
             setDebug(`Capture en cours... (${new Date().toLocaleTimeString()})`);
@@ -169,10 +208,8 @@ export default function AutoScanCNI() {
                             setIsScanning(false);
                             setDebug("CNI détectée avec succès !");
 
-                            // Arrêter la caméra
                             stream?.getTracks().forEach((t) => t.stop());
 
-                            // Redirection vers le formulaire avec les données
                             router.visit("/formulaire", {
                                 method: "get",
                                 data: {
@@ -191,10 +228,23 @@ export default function AutoScanCNI() {
                     },
                 }
             );
-        }, 3000); // Capture toutes les 3 secondes
+        }, 3000);
 
         return () => clearInterval(interval);
     }, [detected, isScanning, stream]);
+
+    // Fonction pour basculer vers la caméra suivante
+    const switchCamera = async () => {
+        if (devices.length <= 1) {
+            setDebug("Une seule caméra disponible");
+            return;
+        }
+
+        const nextIndex = (selectedDeviceIndex + 1) % devices.length;
+        setSelectedDeviceIndex(nextIndex);
+        await startCamera(devices[nextIndex].deviceId);
+        setDebug(`Caméra basculée vers ${devices[nextIndex].label || `Caméra ${nextIndex + 1}`}`);
+    };
 
     return (
         <div className="relative w-full max-w-3xl mx-auto">
@@ -236,6 +286,16 @@ export default function AutoScanCNI() {
                     className="absolute top-4 right-4 bg-red-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-red-700"
                 >
                     Annuler
+                </button>
+            )}
+
+            {/* Nouveau bouton pour changer de caméra */}
+            {isScanning && !detected && devices.length > 1 && (
+                <button
+                    onClick={switchCamera}
+                    className="absolute top-4 left-4 bg-blue-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-blue-700"
+                >
+                    Changer de caméra
                 </button>
             )}
         </div>
