@@ -39,6 +39,11 @@ export default function AutoScanCNI(): JSX.Element {
     const [debug, setDebug] = useState<string>("");
     const [deviceLabel, setDeviceLabel] = useState<string>("");
 
+    // ✅ État pour le sélecteur manuel
+    const [availableCameras, setAvailableCameras] = useState<VideoDevice[]>([]);
+    const [showSelector, setShowSelector] = useState<boolean>(false);
+    const [selectedCameraId, setSelectedCameraId] = useState<string>("");
+
     const startCamera = useCallback(async (deviceId: string): Promise<void> => {
         if (stream) {
             stream.getTracks().forEach((track: MediaStreamTrack) => track.stop());
@@ -62,21 +67,21 @@ export default function AutoScanCNI(): JSX.Element {
                 await videoRef.current.play();
             }
 
-            setDebug("Caméra démarrée avec succès");
+            setDebug("Caméra démarrée");
         } catch (err: unknown) {
             const error = err as Error;
             console.error("Erreur caméra:", error);
-            setDebug(`Erreur caméra: ${error.message}`);
+            setDebug(`Erreur: ${error.message}`);
         }
     }, [stream]);
 
-    // ✅ SÉLECTION STRICTE: Camera 2.0 facing back uniquement
+    // ✅ DÉTECTION AVEC DEBUG COMPLET
     useEffect(() => {
         let mounted: boolean = true;
 
         const initCamera = async (): Promise<void> => {
             try {
-                // Obtenir la permission d'abord
+                // Permission
                 const tempStream: MediaStream = await navigator.mediaDevices.getUserMedia({ video: true });
                 tempStream.getTracks().forEach((track: MediaStreamTrack) => track.stop());
 
@@ -92,73 +97,76 @@ export default function AutoScanCNI(): JSX.Element {
 
                 if (!mounted) return;
 
-                // Debug: afficher toutes les caméras trouvées
-                console.log("Caméras disponibles:");
+                // ✅ DEBUG: Afficher TOUTES les caméras avec leurs labels exacts
+                console.log("=== CAMÉRAS DÉTECTÉES ===");
                 videoDevices.forEach((d, i) => {
-                    console.log(`${i}: ${d.label} (ID: ${d.deviceId.substring(0, 8)}...)`);
+                    console.log(`[${i}] Label: "${d.label}"`);
+                    console.log(`    ID: ${d.deviceId.substring(0, 15)}...`);
+                    console.log(`    Lowercase: "${d.label.toLowerCase()}"`);
+                    console.log("---");
                 });
 
+                setAvailableCameras(videoDevices);
                 setDebug(`${videoDevices.length} caméra(s) trouvée(s)`);
 
-                // ✅ RECHERCHE EXACTE: "Camera 2.0 facing back"
-                // On exclut explicitement la 2.2 et tout autre numéro
+                // ✅ RECHERCHE SOUPLE: trouver "2.0" dans le label (pas forcément au début)
                 let selectedDevice: VideoDevice | undefined;
 
-                // Priorité 1: Label exact "Camera 2.0 facing back"
-                selectedDevice = videoDevices.find((d: VideoDevice) =>
-                    d.label === "Camera 2.0 facing back"
-                );
+                // Stratégie 1: Contient "2.0" et "back" mais PAS "2.2"
+                selectedDevice = videoDevices.find((d: VideoDevice) => {
+                    const lower = d.label.toLowerCase();
+                    return lower.includes("2.0") &&
+                        lower.includes("back") &&
+                        !lower.includes("2.2") &&
+                        !lower.includes("2.1");
+                });
 
-                // Priorité 2: Contient "2.0" mais PAS "2.2" et contient "back"
-                if (!selectedDevice) {
-                    selectedDevice = videoDevices.find((d: VideoDevice) =>
-                        d.label.includes("2.0") &&
-                        !d.label.includes("2.2") &&
-                        !d.label.includes("2.1") &&
-                        d.label.toLowerCase().includes("back")
-                    );
-                }
-
-                // Priorité 3: Contient "camera 2" mais PAS "2.2", "2.1", "2.3", etc.
+                // Stratégie 2: Contient "2" et "back" mais pas d'autres numéros
                 if (!selectedDevice) {
                     selectedDevice = videoDevices.find((d: VideoDevice) => {
-                        const lowerLabel = d.label.toLowerCase();
-                        return (
-                            lowerLabel.includes("camera 2") &&
-                            !lowerLabel.includes("2.1") &&
-                            !lowerLabel.includes("2.2") &&
-                            !lowerLabel.includes("2.3") &&
-                            !lowerLabel.includes("2.4") &&
-                            lowerLabel.includes("back")
-                        );
+                        const lower = d.label.toLowerCase();
+                        // Cherche "camera 2" ou juste " 2 " avec back
+                        return (lower.includes("camera 2") || lower.match(/camera.*\b2\b/)) &&
+                            lower.includes("back") &&
+                            !lower.includes("2.2") &&
+                            !lower.includes("2.3");
                     });
                 }
 
-                // ❌ PAS DE FALLBACK sur caméra 2.2 - on préfère échouer
+                // Stratégie 3: Exclure l'infrarouge (souvent avec IR, infrared, ou 2.2)
                 if (!selectedDevice) {
-                    setDebug("❌ Caméra 2.0 facing back non trouvée !");
-                    console.error("Caméra 2.0 facing back non trouvée. Caméras disponibles:",
-                        videoDevices.map(d => d.label)
-                    );
-                    return;
+                    selectedDevice = videoDevices.find((d: VideoDevice) => {
+                        const lower = d.label.toLowerCase();
+                        return lower.includes("back") &&
+                            !lower.includes("2.2") &&
+                            !lower.includes("ir") &&
+                            !lower.includes("infrared") &&
+                            !lower.includes("thermal");
+                    });
                 }
 
-                // Vérification finale qu'on n'a pas sélectionné la 2.2 par erreur
-                if (selectedDevice.label.includes("2.2")) {
-                    setDebug("❌ ERREUR: Caméra 2.2 sélectionnée par erreur");
-                    console.error("ERREUR: Caméra infrarouge 2.2 détectée, arrêt");
-                    return;
-                }
+                if (selectedDevice) {
+                    // Vérification anti-2.2
+                    if (selectedDevice.label.includes("2.2")) {
+                        setDebug("❌ ERREUR: 2.2 détectée!");
+                        setShowSelector(true);
+                        return;
+                    }
 
-                setDeviceLabel(selectedDevice.label);
-                setDebug(`✅ Caméra sélectionnée: ${selectedDevice.label}`);
-                await startCamera(selectedDevice.deviceId);
+                    setDeviceLabel(selectedDevice.label);
+                    setDebug(`✅ ${selectedDevice.label}`);
+                    setSelectedCameraId(selectedDevice.deviceId);
+                    await startCamera(selectedDevice.deviceId);
+                } else {
+                    setDebug("⚠️ Caméra 2.0 non trouvée - Sélection manuelle");
+                    setShowSelector(true);
+                }
 
             } catch (err: unknown) {
                 if (!mounted) return;
                 const error = err as Error;
-                console.error("Erreur init caméra:", error);
-                setDebug(`Erreur init: ${error.message}`);
+                console.error("Erreur:", error);
+                setDebug(`Erreur: ${error.message}`);
             }
         };
 
@@ -171,6 +179,14 @@ export default function AutoScanCNI(): JSX.Element {
             }
         };
     }, [startCamera, stream]);
+
+    // ✅ HANDLER POUR SÉLECTION MANUELLE
+    const handleManualSelect = (deviceId: string, label: string): void => {
+        setSelectedCameraId(deviceId);
+        setDeviceLabel(label);
+        setShowSelector(false);
+        startCamera(deviceId);
+    };
 
     useEffect(() => {
         const video: HTMLVideoElement | null = videoRef.current;
@@ -229,7 +245,7 @@ export default function AutoScanCNI(): JSX.Element {
                 if (isScanning && !detected) {
                     ctx.font = "20px Arial";
                     ctx.fillStyle = "#ffffff";
-                    ctx.fillText("🔍 Analyse en cours...", overlay.width / 2, y + FRAME_HEIGHT + 40);
+                    ctx.fillText("🔍 Analyse...", overlay.width / 2, y + FRAME_HEIGHT + 40);
                 }
             }
 
@@ -244,7 +260,7 @@ export default function AutoScanCNI(): JSX.Element {
         const video: HTMLVideoElement | null = videoRef.current;
         const canvas: HTMLCanvasElement | null = canvasRef.current;
 
-        if (!video || !canvas || detected || !isScanning) return;
+        if (!video || !canvas || detected || !isScanning || !stream) return;
 
         const captureAndSend = async (): Promise<void> => {
             if (video.videoWidth === 0 || video.videoHeight === 0) return;
@@ -300,11 +316,9 @@ export default function AutoScanCNI(): JSX.Element {
                         const result: ScanResult = (page.props as { data?: ScanResult }).data ?? {};
 
                         if (result.nom || result.prenom || result.numero) {
-                            console.log("CNI détectée:", result);
                             setDetected(true);
                             setIsScanning(false);
-                            setDebug("✅ CNI détectée avec succès !");
-
+                            setDebug("✅ CNI détectée !");
                             stream?.getTracks().forEach((track: MediaStreamTrack) => track.stop());
 
                             router.visit("/formulaire", {
@@ -316,12 +330,12 @@ export default function AutoScanCNI(): JSX.Element {
                                 },
                             });
                         } else {
-                            setDebug("❌ Aucune CNI détectée. Ajustez la carte.");
+                            setDebug("❌ Pas de CNI détectée");
                         }
                     },
                     onError: (errors: Record<string, string>): void => {
                         console.error("Erreur OCR:", errors);
-                        setDebug(`Erreur OCR: ${JSON.stringify(errors)}`);
+                        setDebug(`Erreur: ${JSON.stringify(errors)}`);
                     },
                 }
             );
@@ -339,6 +353,7 @@ export default function AutoScanCNI(): JSX.Element {
 
     return (
         <div className="relative w-full h-screen bg-black overflow-hidden">
+            {/* Vidéo */}
             <video
                 ref={videoRef}
                 autoPlay
@@ -347,6 +362,7 @@ export default function AutoScanCNI(): JSX.Element {
                 className="absolute inset-0 w-full h-full object-cover"
             />
 
+            {/* Overlay */}
             <canvas
                 ref={overlayRef}
                 className="absolute inset-0 w-full h-full pointer-events-none"
@@ -354,37 +370,95 @@ export default function AutoScanCNI(): JSX.Element {
 
             <canvas ref={canvasRef} className="hidden" />
 
-            <div className="absolute bottom-8 left-0 right-0 flex flex-col items-center gap-4">
-                {!detected && isScanning && (
-                    <div className="bg-black/80 text-white px-6 py-3 rounded-full text-lg font-medium">
-                        {debug || "Placez la carte dans le cadre vert..."}
-                    </div>
-                )}
+            {/* ✅ SÉLECTEUR MANUEL DE CAMÉRA */}
+            {showSelector && (
+                <div className="absolute inset-0 bg-black/90 flex flex-col items-center justify-center z-50 p-4">
+                    <h2 className="text-white text-xl font-bold mb-4">
+                        Sélectionnez la caméra normale (2.0)
+                    </h2>
+                    <p className="text-gray-400 text-sm mb-6 text-center">
+                        Évitez la caméra 2.2 (infrarouge)
+                    </p>
 
-                {detected && (
-                    <div className="bg-green-600 text-white px-6 py-3 rounded-full text-lg font-bold animate-pulse">
-                        CNI détectée ! Redirection...
+                    <div className="space-y-2 w-full max-w-md">
+                        {availableCameras.map((camera, index) => (
+                            <button
+                                key={camera.deviceId}
+                                onClick={() => handleManualSelect(camera.deviceId, camera.label)}
+                                className={`w-full p-4 rounded-lg text-left transition-colors ${camera.label.includes("2.2")
+                                        ? "bg-red-900/50 border border-red-500 text-red-200"
+                                        : "bg-gray-800 hover:bg-gray-700 text-white"
+                                    }`}
+                            >
+                                <div className="font-medium">
+                                    {index + 1}. {camera.label || `Caméra ${index + 1}`}
+                                </div>
+                                <div className="text-xs text-gray-400 mt-1">
+                                    ID: {camera.deviceId.substring(0, 20)}...
+                                </div>
+                                {camera.label.includes("2.2") && (
+                                    <div className="text-xs text-red-400 mt-1 font-bold">
+                                        ⚠️ INFRAROUGE - NE PAS UTILISER
+                                    </div>
+                                )}
+                                {camera.label.includes("2.0") && (
+                                    <div className="text-xs text-green-400 mt-1 font-bold">
+                                        ✅ RECOMMANDÉE
+                                    </div>
+                                )}
+                            </button>
+                        ))}
                     </div>
-                )}
-            </div>
-
-            {isScanning && !detected && (
-                <button
-                    type="button"
-                    onClick={handleCancel}
-                    className="absolute top-6 right-6 bg-red-600 hover:bg-red-700 text-white px-6 py-3 rounded-full text-lg font-medium transition-colors shadow-lg"
-                >
-                    ✕ Annuler
-                </button>
+                </div>
             )}
 
-            {stream && (
-                <div className="absolute top-6 left-6 flex items-center gap-2 bg-black/60 text-white px-4 py-2 rounded-full text-sm">
-                    <div className="w-3 h-3 bg-green-500 rounded-full animate-pulse" />
-                    <span className="truncate max-w-[200px]">
-                        {deviceLabel || "Caméra active"}
-                    </span>
-                </div>
+            {/* UI normale */}
+            {!showSelector && (
+                <>
+                    <div className="absolute bottom-8 left-0 right-0 flex flex-col items-center gap-4">
+                        {!detected && isScanning && (
+                            <div className="bg-black/80 text-white px-6 py-3 rounded-full text-lg font-medium">
+                                {debug}
+                            </div>
+                        )}
+
+                        {detected && (
+                            <div className="bg-green-600 text-white px-6 py-3 rounded-full text-lg font-bold animate-pulse">
+                                CNI détectée !
+                            </div>
+                        )}
+                    </div>
+
+                    {isScanning && !detected && (
+                        <button
+                            type="button"
+                            onClick={handleCancel}
+                            className="absolute top-6 right-6 bg-red-600 hover:bg-red-700 text-white px-6 py-3 rounded-full text-lg font-medium transition-colors shadow-lg"
+                        >
+                            ✕ Annuler
+                        </button>
+                    )}
+
+                    {/* Bouton pour changer de caméra */}
+                    {!detected && (
+                        <button
+                            type="button"
+                            onClick={() => setShowSelector(true)}
+                            className="absolute top-6 left-6 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-full text-sm font-medium transition-colors shadow-lg"
+                        >
+                            🎥 Changer caméra
+                        </button>
+                    )}
+
+                    {stream && (
+                        <div className="absolute top-20 left-6 flex items-center gap-2 bg-black/60 text-white px-4 py-2 rounded-full text-sm">
+                            <div className="w-3 h-3 bg-green-500 rounded-full animate-pulse" />
+                            <span className="truncate max-w-[200px]">
+                                {deviceLabel}
+                            </span>
+                        </div>
+                    )}
+                </>
             )}
         </div>
     );
