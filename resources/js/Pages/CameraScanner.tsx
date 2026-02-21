@@ -20,8 +20,8 @@ export default function AutoScanCNI() {
     const [dimensions, setDimensions] = useState({ width: 0, height: 0 });
 
     // Dimensions du cadre de scan (format carte d'identité) - AGRANDI
-    const FRAME_WIDTH = 760;  // Augmenté de 760
-    const FRAME_HEIGHT = 450;  // Augmenté de 480
+    const FRAME_WIDTH = 1750;  // Augmenté de 760
+    const FRAME_HEIGHT = 850;  // Augmenté de 480
 
     // Mettre à jour les dimensions de l'écran
     useEffect(() => {
