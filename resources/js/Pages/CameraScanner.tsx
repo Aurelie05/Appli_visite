@@ -25,7 +25,7 @@ declare module "@inertiajs/core" {
 // Constantes
 const FRAME_WIDTH: number = 1280;
 const FRAME_HEIGHT: number = 800;
-const SCAN_INTERVAL: number = 8000; // ✅ Augmenté à 8 secondes
+const SCAN_INTERVAL: number = 8000; // 8 secondes
 const JPEG_QUALITY: number = 0.95;
 
 export default function AutoScanCNI(): JSX.Element {
@@ -35,19 +35,22 @@ export default function AutoScanCNI(): JSX.Element {
 
     const [stream, setStream] = useState<MediaStream | null>(null);
     const [detected, setDetected] = useState<boolean>(false);
-    const [isScanning, setIsScanning] = useState<boolean>(false); // ✅ Commence à false
-    const [debug, setDebug] = useState<string>("Chargement des caméras...");
+    const [isScanning, setIsScanning] = useState<boolean>(false);
+    const [debug, setDebug] = useState<string>("Initialisation...");
     const [deviceLabel, setDeviceLabel] = useState<string>("");
 
     const [availableCameras, setAvailableCameras] = useState<VideoDevice[]>([]);
     const [showSelector, setShowSelector] = useState<boolean>(false);
+    const [isInitialized, setIsInitialized] = useState<boolean>(false); // ✅ Flag pour éviter re-render
 
+    // ✅ Démarrer caméra - mémorisé une seule fois
     const startCamera = useCallback(async (deviceId: string, label: string): Promise<void> => {
-        if (stream) {
-            stream.getTracks().forEach((track: MediaStreamTrack) => track.stop());
-        }
-
         try {
+            // Arrêter l'ancien stream si existe
+            if (stream) {
+                stream.getTracks().forEach((track: MediaStreamTrack) => track.stop());
+            }
+
             const constraints: MediaStreamConstraints = {
                 video: {
                     deviceId: { exact: deviceId },
@@ -60,28 +63,34 @@ export default function AutoScanCNI(): JSX.Element {
 
             setStream(mediaStream);
             setDeviceLabel(label);
+            setShowSelector(false); // ✅ Cacher le sélecteur
 
             if (videoRef.current) {
                 videoRef.current.srcObject = mediaStream;
                 await videoRef.current.play();
             }
 
-            setDebug(`✅ ${label} active - Prêt à scanner`);
-            setIsScanning(true); // ✅ Démarre le scan seulement après sélection caméra
+            setDebug(`✅ ${label} - Prêt à scanner`);
+            setIsScanning(true);
 
         } catch (err: unknown) {
             const error = err as Error;
             console.error("Erreur caméra:", error);
-            setDebug(`Erreur: ${error.message}`);
+            setDebug(`❌ Erreur: ${error.message}`);
+            setShowSelector(true); // ✅ Re-montrer sélecteur en cas d'erreur
         }
-    }, [stream]);
+    }, [stream]); // ✅ Dépendance stream mais pas de boucle car géré par le flag
 
-    // ✅ DÉTECTION : Trouver toutes les caméras puis proposer choix ou auto-sélection 2.0
+    // ✅ INITIALISATION UNIQUE - ne se relance jamais
     useEffect(() => {
-        let mounted: boolean = true;
+        // Éviter double exécution avec React StrictMode
+        if (isInitialized) return;
 
         const initCamera = async (): Promise<void> => {
             try {
+                setDebug("Recherche des caméras...");
+
+                // Permission
                 const tempStream: MediaStream = await navigator.mediaDevices.getUserMedia({ video: true });
                 tempStream.getTracks().forEach((track: MediaStreamTrack) => track.stop());
 
@@ -95,73 +104,65 @@ export default function AutoScanCNI(): JSX.Element {
                         groupId: d.groupId
                     }));
 
-                if (!mounted) return;
-
-                console.log("=== CAMÉRAS DÉTECTÉES ===");
-                videoDevices.forEach((d, i) => {
-                    console.log(`[${i}] "${d.label}"`);
-                });
+                console.log("=== CAMÉRAS ===");
+                videoDevices.forEach((d, i) => console.log(`[${i}] "${d.label}"`));
 
                 setAvailableCameras(videoDevices);
+                setIsInitialized(true); // ✅ Marquer comme initialisé
 
-                // ✅ Chercher spécifiquement la 2.0
+                // Chercher caméra 2.0
                 const camera20 = videoDevices.find((d: VideoDevice) => {
                     const lower = d.label.toLowerCase();
                     return lower.includes("2.0") && lower.includes("back");
                 });
 
-                // ✅ Chercher la 2.2 (infrarouge) pour info
-                const camera22 = videoDevices.find((d: VideoDevice) => {
-                    const lower = d.label.toLowerCase();
-                    return lower.includes("2.2") && lower.includes("back");
-                });
-
-                if (camera20 && camera22) {
-                    // Les deux existent : démarrer automatiquement sur 2.0
-                    console.log("✅ Auto-démarrage sur Camera 2.0");
+                if (camera20) {
+                    console.log("Auto-démarrage 2.0:", camera20.label);
                     setDebug("Démarrage caméra 2.0...");
-                    await startCamera(camera20.deviceId, camera20.label);
-                } else if (camera20) {
-                    // Uniquement 2.0 trouvée
-                    console.log("✅ Caméra 2.0 trouvée");
-                    setDebug("Démarrage caméra 2.0...");
+                    // ✅ Démarrer directement sans passer par le sélecteur
                     await startCamera(camera20.deviceId, camera20.label);
                 } else {
-                    // Pas de 2.0 trouvée, montrer sélecteur
-                    console.log("⚠️ Caméra 2.0 non trouvée");
-                    setDebug("⚠️ Sélectionnez la caméra 2.0");
+                    console.log("Sélecteur manuel nécessaire");
+                    setDebug("Choisissez la caméra 2.0");
                     setShowSelector(true);
                 }
 
             } catch (err: unknown) {
-                if (!mounted) return;
                 const error = err as Error;
-                console.error("Erreur:", error);
+                console.error("Erreur init:", error);
                 setDebug(`Erreur: ${error.message}`);
                 setShowSelector(true);
+                setIsInitialized(true);
             }
         };
 
         initCamera();
 
-        return (): void => {
-            mounted = false;
+        // ✅ Pas de cleanup qui relance tout
+        return () => {
+            // Nettoyage silencieux sans state update
             if (stream) {
                 stream.getTracks().forEach((track: MediaStreamTrack) => track.stop());
             }
         };
-    }, [startCamera, stream]);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []); // ✅ Tableau vide = exécution unique
 
-    const handleManualSelect = (deviceId: string, label: string): void => {
-        setShowSelector(false);
+    // ✅ HANDLER SÉLECTION - simple, sans effet de bord
+    const handleManualSelect = useCallback((deviceId: string, label: string): void => {
+        console.log("Sélection manuelle:", label);
+        setDebug(`Chargement ${label}...`);
         startCamera(deviceId, label);
-    };
+    }, [startCamera]);
 
+    // Dessiner le cadre
     useEffect(() => {
         const video: HTMLVideoElement | null = videoRef.current;
         const overlay: HTMLCanvasElement | null = overlayRef.current;
 
         if (!video || !overlay) return;
+
+        let animationId: number;
 
         const drawFrame = (): void => {
             if (video.readyState === video.HAVE_ENOUGH_DATA) {
@@ -218,14 +219,17 @@ export default function AutoScanCNI(): JSX.Element {
                 }
             }
 
-            requestAnimationFrame(drawFrame);
+            animationId = requestAnimationFrame(drawFrame);
         };
 
-        const animationId: number = requestAnimationFrame(drawFrame);
-        return (): void => cancelAnimationFrame(animationId);
+        drawFrame();
+
+        return (): void => {
+            cancelAnimationFrame(animationId);
+        };
     }, [isScanning, detected]);
 
-    // ✅ Scan avec intervalle augmenté
+    // Scan OCR
     useEffect(() => {
         const video: HTMLVideoElement | null = videoRef.current;
         const canvas: HTMLCanvasElement | null = canvasRef.current;
@@ -300,12 +304,11 @@ export default function AutoScanCNI(): JSX.Element {
                                 },
                             });
                         } else {
-                            setDebug("❌ Pas de CNI détectée - Réessayez");
+                            setDebug("❌ Pas de CNI - Réessayez");
                         }
                     },
-                    onError: (errors: Record<string, string>): void => {
-                        console.error("Erreur OCR:", errors);
-                        setDebug(`Erreur serveur`);
+                    onError: (): void => {
+                        setDebug("Erreur serveur");
                     },
                 }
             );
@@ -358,28 +361,26 @@ export default function AutoScanCNI(): JSX.Element {
                                 <button
                                     key={camera.deviceId}
                                     onClick={() => handleManualSelect(camera.deviceId, camera.label)}
-                                    className={`w-full p-4 rounded-xl text-left transition-all transform hover:scale-105 ${is22
+                                    className={`w-full p-4 rounded-xl text-left transition-all ${is22
                                             ? "bg-red-900/50 border-2 border-red-500 text-red-200"
                                             : is20
-                                                ? "bg-green-900/50 border-2 border-green-500 text-green-200 shadow-lg shadow-green-500/20"
-                                                : "bg-gray-800 hover:bg-gray-700 text-white border border-gray-600"
+                                                ? "bg-green-900/50 border-2 border-green-500 text-green-200"
+                                                : "bg-gray-800 hover:bg-gray-700 text-white"
                                         }`}
                                 >
-                                    <div className="flex items-center justify-between">
-                                        <span className="font-bold text-lg">
-                                            {is20 ? "✅ " : is22 ? "❌ " : "📷 "}
-                                            {camera.label || `Caméra ${index + 1}`}
-                                        </span>
+                                    <div className="font-bold text-lg">
+                                        {is20 ? "✅ " : is22 ? "❌ " : "📷 "}
+                                        {camera.label || `Caméra ${index + 1}`}
                                     </div>
 
                                     {is22 && (
                                         <div className="text-xs text-red-300 mt-1 font-bold">
-                                            ⚠️ CAMÉRA INFRAROUGE - NE PAS UTILISER
+                                            ⚠️ INFRAROUGE
                                         </div>
                                     )}
                                     {is20 && (
                                         <div className="text-xs text-green-300 mt-1 font-bold">
-                                            ✓ Caméra normale recommandée
+                                            ✓ Caméra normale
                                         </div>
                                     )}
                                 </button>
@@ -392,55 +393,63 @@ export default function AutoScanCNI(): JSX.Element {
             {/* UI normale */}
             {!showSelector && (
                 <>
-                    {/* Barre de statut en haut */}
+                    {/* Header */}
                     <div className="absolute top-0 left-0 right-0 bg-black/70 p-4">
                         <div className="flex items-center justify-between max-w-3xl mx-auto">
                             <div className="flex items-center gap-2">
                                 <div className={`w-3 h-3 rounded-full ${isScanning ? 'bg-green-500 animate-pulse' : 'bg-yellow-500'}`} />
                                 <span className="text-white text-sm font-medium truncate max-w-[200px]">
-                                    {deviceLabel || "Chargement..."}
+                                    {deviceLabel || "..."}
                                 </span>
                             </div>
                             <span className="text-gray-300 text-xs">
-                                {isScanning ? `Scan toutes les ${SCAN_INTERVAL / 1000}s` : 'Prêt'}
+                                {isScanning ? `Scan ${SCAN_INTERVAL / 1000}s` : 'Prêt'}
                             </span>
                         </div>
                     </div>
 
-                    {/* Message de debug en bas */}
+                    {/* Debug */}
                     <div className="absolute bottom-24 left-0 right-0 flex justify-center">
-                        <div className="bg-black/80 text-white px-6 py-3 rounded-full text-base font-medium">
+                        <div className="bg-black/80 text-white px-6 py-3 rounded-full text-base">
                             {debug}
                         </div>
                     </div>
 
                     {/* Boutons */}
                     <div className="absolute bottom-6 left-0 right-0 flex justify-center gap-4">
-                        {!detected && isScanning && (
-                            <button
-                                type="button"
-                                onClick={() => setShowSelector(true)}
-                                className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-full font-medium transition-colors shadow-lg"
-                            >
-                                🎥 Changer caméra
-                            </button>
-                        )}
-
                         {!detected && (
-                            <button
-                                type="button"
-                                onClick={handleCancel}
-                                className="bg-red-600 hover:bg-red-700 text-white px-6 py-3 rounded-full font-medium transition-colors shadow-lg"
-                            >
-                                ✕ Annuler
-                            </button>
+                            <>
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        // ✅ Arrêter stream actuel avant de montrer sélecteur
+                                        if (stream) {
+                                            stream.getTracks().forEach(t => t.stop());
+                                            setStream(null);
+                                        }
+                                        setIsScanning(false);
+                                        setShowSelector(true);
+                                    }}
+                                    className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-full font-medium"
+                                >
+                                    🎥 Changer caméra
+                                </button>
+
+                                <button
+                                    type="button"
+                                    onClick={handleCancel}
+                                    className="bg-red-600 hover:bg-red-700 text-white px-6 py-3 rounded-full font-medium"
+                                >
+                                    ✕ Annuler
+                                </button>
+                            </>
                         )}
                     </div>
 
                     {detected && (
                         <div className="absolute inset-0 flex items-center justify-center bg-black/50">
                             <div className="bg-green-600 text-white px-8 py-4 rounded-2xl text-xl font-bold animate-pulse">
-                                ✅ CNI détectée ! Redirection...
+                                ✅ CNI détectée !
                             </div>
                         </div>
                     )}
