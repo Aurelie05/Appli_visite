@@ -1,4 +1,4 @@
-import React, { useRef, useEffect, useState } from "react";
+import React, { useRef, useEffect, useState, useCallback } from "react";
 import { router } from "@inertiajs/react";
 
 type ScanResult = {
@@ -18,10 +18,11 @@ export default function AutoScanCNI() {
     const [debug, setDebug] = useState<string>("");
     const [scanProgress, setScanProgress] = useState(0);
     const [dimensions, setDimensions] = useState({ width: 0, height: 0 });
+    const isProcessingRef = useRef(false);
 
     // Dimensions du cadre de scan (format carte d'identité) - AGRANDI
-    const FRAME_WIDTH = 1750;  // Augmenté de 760
-    const FRAME_HEIGHT = 850;  // Augmenté de 480
+    const FRAME_WIDTH = 1750;
+    const FRAME_HEIGHT = 970;
 
     // Mettre à jour les dimensions de l'écran
     useEffect(() => {
@@ -64,13 +65,13 @@ export default function AutoScanCNI() {
         };
     }, []);
 
-    // Animation de ligne de scan
+    // Animation de ligne de scan - PLUS RAPIDE
     useEffect(() => {
         if (!isScanning || detected) return;
 
         const interval = setInterval(() => {
-            setScanProgress(prev => (prev + 1) % 100);
-        }, 15);
+            setScanProgress(prev => (prev + 2) % 100); // +2 au lieu de +1
+        }, 10); // 10ms au lieu de 15ms
 
         return () => clearInterval(interval);
     }, [isScanning, detected]);
@@ -188,100 +189,107 @@ export default function AutoScanCNI() {
         return () => cancelAnimationFrame(animationId);
     }, [videoRef.current, scanProgress, isScanning, detected]);
 
-    // Capture et envoi
+    // Fonction de capture optimisée
+    const captureAndSend = useCallback(async () => {
+        if (isProcessingRef.current || detected || !isScanning) return;
+
+        const video = videoRef.current;
+        const canvas = canvasRef.current;
+        if (!video || !canvas) return;
+        if (video.videoWidth === 0 || video.videoHeight === 0) return;
+
+        isProcessingRef.current = true;
+
+        const ctx = canvas.getContext("2d", { willReadFrequently: true });
+        if (!ctx) {
+            isProcessingRef.current = false;
+            return;
+        }
+
+        // Calculer les coordonnées du cadre
+        const videoWidth = video.videoWidth;
+        const videoHeight = video.videoHeight;
+        const frameX = (videoWidth - FRAME_WIDTH) / 2;
+        const frameY = (videoHeight - FRAME_HEIGHT) / 2;
+
+        canvas.width = FRAME_WIDTH;
+        canvas.height = FRAME_HEIGHT;
+
+        // Extraire uniquement la zone du cadre
+        ctx.drawImage(
+            video,
+            frameX,
+            frameY,
+            FRAME_WIDTH,
+            FRAME_HEIGHT,
+            0,
+            0,
+            FRAME_WIDTH,
+            FRAME_HEIGHT
+        );
+
+        // Amélioration du contraste simplifiée (plus rapide)
+        const imageData = ctx.getImageData(0, 0, FRAME_WIDTH, FRAME_HEIGHT);
+        const data = imageData.data;
+        const len = data.length;
+
+        // Traitement par blocs pour éviter de bloquer le thread
+        for (let i = 0; i < len; i += 4) {
+            const gray = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
+            const adjusted = gray > 128 ? Math.min(255, gray + 20) : Math.max(0, gray - 20);
+            data[i] = adjusted;
+            data[i + 1] = adjusted;
+            data[i + 2] = adjusted;
+        }
+        ctx.putImageData(imageData, 0, 0);
+
+        // Compression JPEG avec qualité réduite pour envoi plus rapide
+        const base64 = canvas.toDataURL("image/jpeg", 0.85);
+
+        router.post(
+            "/scan-cni",
+            { image: base64 },
+            {
+                preserveScroll: true,
+                onSuccess: (page: any) => {
+                    const data: ScanResult = page.props?.data || {};
+
+                    if (data.nom || data.prenom || data.numero) {
+                        setDetected(true);
+                        setIsScanning(false);
+                        stream?.getTracks().forEach((t) => t.stop());
+
+                        router.visit("/formulaire", {
+                            method: "get",
+                            data: {
+                                nom: data.nom || "",
+                                prenom: data.prenom || "",
+                                numero_cni: data.numero || "",
+                            },
+                        });
+                    }
+                    isProcessingRef.current = false;
+                },
+                onError: (errors) => {
+                    console.error("Erreur OCR:", errors);
+                    isProcessingRef.current = false;
+                },
+            }
+        );
+    }, [detected, isScanning, stream]);
+
+    // Capture et envoi - INTERVALLE RÉDUIT
     useEffect(() => {
         if (!videoRef.current || !canvasRef.current) return;
         if (detected || !isScanning) return;
 
-        const interval = setInterval(async () => {
-            const video = videoRef.current;
-            const canvas = canvasRef.current;
-            if (!video || !canvas) return;
+        // Capture immédiate puis toutes les 1.5 secondes
+        captureAndSend();
 
-            if (video.videoWidth === 0 || video.videoHeight === 0) return;
-
-            const ctx = canvas.getContext("2d");
-            if (!ctx) return;
-
-            // Calculer les coordonnées du cadre
-            const videoWidth = video.videoWidth;
-            const videoHeight = video.videoHeight;
-            const frameX = (videoWidth - FRAME_WIDTH) / 2;
-            const frameY = (videoHeight - FRAME_HEIGHT) / 2;
-
-            canvas.width = FRAME_WIDTH;
-            canvas.height = FRAME_HEIGHT;
-
-            // Extraire uniquement la zone du cadre
-            ctx.drawImage(
-                video,
-                frameX,
-                frameY,
-                FRAME_WIDTH,
-                FRAME_HEIGHT,
-                0,
-                0,
-                FRAME_WIDTH,
-                FRAME_HEIGHT
-            );
-
-            // Amélioration du contraste pour l'OCR
-            const imageData = ctx.getImageData(0, 0, FRAME_WIDTH, FRAME_HEIGHT);
-            const data = imageData.data;
-
-            for (let i = 0; i < data.length; i += 4) {
-                let r = data[i];
-                let g = data[i + 1];
-                let b = data[i + 2];
-
-                let gray = 0.299 * r + 0.587 * g + 0.114 * b;
-                gray = ((gray - 50) / 155) * 255;
-                gray = Math.max(0, Math.min(255, gray));
-                gray = gray > 128 ? Math.min(255, gray + 30) : Math.max(0, gray - 30);
-
-                data[i] = gray;
-                data[i + 1] = gray;
-                data[i + 2] = gray;
-            }
-            ctx.putImageData(imageData, 0, 0);
-
-            const base64 = canvas.toDataURL("image/jpeg", 0.9);
-
-            setDebug(`Capture...`);
-
-            router.post(
-                "/scan-cni",
-                { image: base64 },
-                {
-                    preserveScroll: true,
-                    onSuccess: (page: any) => {
-                        const data: ScanResult = page.props?.data || {};
-
-                        if (data.nom || data.prenom || data.numero) {
-                            setDetected(true);
-                            setIsScanning(false);
-
-                            stream?.getTracks().forEach((t) => t.stop());
-
-                            router.visit("/formulaire", {
-                                method: "get",
-                                data: {
-                                    nom: data.nom || "",
-                                    prenom: data.prenom || "",
-                                    numero_cni: data.numero || "",
-                                },
-                            });
-                        }
-                    },
-                    onError: (errors) => {
-                        console.error("Erreur OCR:", errors);
-                    },
-                }
-            );
-        }, 3000);
+        const interval = setInterval(captureAndSend, 1500); // 1.5s au lieu de 3s
 
         return () => clearInterval(interval);
-    }, [detected, isScanning, stream]);
+    }, [captureAndSend, detected, isScanning]);
 
     return (
         <div
