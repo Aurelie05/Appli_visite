@@ -11,15 +11,31 @@ export default function AutoScanCNI() {
     const videoRef = useRef<HTMLVideoElement>(null);
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const overlayRef = useRef<HTMLCanvasElement>(null);
+    const containerRef = useRef<HTMLDivElement>(null);
     const [stream, setStream] = useState<MediaStream | null>(null);
     const [detected, setDetected] = useState(false);
     const [isScanning, setIsScanning] = useState(true);
     const [debug, setDebug] = useState<string>("");
     const [scanProgress, setScanProgress] = useState(0);
+    const [dimensions, setDimensions] = useState({ width: 0, height: 0 });
 
-    // Dimensions du cadre de scan (format carte d'identité)
-    const FRAME_WIDTH = 760;
-    const FRAME_HEIGHT = 480; // Ratio carte d'identité
+    // Dimensions du cadre de scan (format carte d'identité) - AGRANDI
+    const FRAME_WIDTH = 760;  // Augmenté de 760
+    const FRAME_HEIGHT = 450;  // Augmenté de 480
+
+    // Mettre à jour les dimensions de l'écran
+    useEffect(() => {
+        const updateDimensions = () => {
+            setDimensions({
+                width: window.innerWidth,
+                height: window.innerHeight
+            });
+        };
+
+        updateDimensions();
+        window.addEventListener('resize', updateDimensions);
+        return () => window.removeEventListener('resize', updateDimensions);
+    }, []);
 
     // Démarrer la caméra
     useEffect(() => {
@@ -27,8 +43,8 @@ export default function AutoScanCNI() {
             .getUserMedia({
                 video: {
                     facingMode: "environment",
-                    width: { ideal: 1920 },
-                    height: { ideal: 1080 },
+                    width: { ideal: 4096 },
+                    height: { ideal: 2160 },
                 },
             })
             .then((mediaStream) => {
@@ -54,7 +70,7 @@ export default function AutoScanCNI() {
 
         const interval = setInterval(() => {
             setScanProgress(prev => (prev + 1) % 100);
-        }, 20);
+        }, 15);
 
         return () => clearInterval(interval);
     }, [isScanning, detected]);
@@ -80,7 +96,7 @@ export default function AutoScanCNI() {
                 const y = (overlay.height - FRAME_HEIGHT) / 2;
 
                 // Masque sombre autour du cadre
-                ctx.fillStyle = "rgba(0, 0, 0, 0.7)";
+                ctx.fillStyle = "rgba(0, 0, 0, 0.75)";
                 ctx.fillRect(0, 0, overlay.width, overlay.height);
 
                 // Zone transparente pour la carte
@@ -88,16 +104,16 @@ export default function AutoScanCNI() {
 
                 // Bordure extérieure lumineuse
                 ctx.shadowColor = "#00d4ff";
-                ctx.shadowBlur = 20;
+                ctx.shadowBlur = 30;
                 ctx.strokeStyle = "#00d4ff";
-                ctx.lineWidth = 3;
+                ctx.lineWidth = 4;
                 ctx.strokeRect(x, y, FRAME_WIDTH, FRAME_HEIGHT);
                 ctx.shadowBlur = 0;
 
-                // Coins décoratifs aux 4 angles
-                const cornerSize = 40;
+                // Coins décoratifs aux 4 angles - AGRANDIS
+                const cornerSize = 60;
                 ctx.strokeStyle = "#00d4ff";
-                ctx.lineWidth = 6;
+                ctx.lineWidth = 8;
                 ctx.lineCap = "round";
 
                 // Coin supérieur gauche
@@ -133,36 +149,36 @@ export default function AutoScanCNI() {
                     const scanY = y + (FRAME_HEIGHT * scanProgress) / 100;
 
                     // Dégradé de la ligne
-                    const gradient = ctx.createLinearGradient(x, scanY - 10, x, scanY + 10);
+                    const gradient = ctx.createLinearGradient(x, scanY - 15, x, scanY + 15);
                     gradient.addColorStop(0, "transparent");
-                    gradient.addColorStop(0.5, "rgba(0, 212, 255, 0.8)");
+                    gradient.addColorStop(0.5, "rgba(0, 212, 255, 0.9)");
                     gradient.addColorStop(1, "transparent");
 
                     ctx.fillStyle = gradient;
-                    ctx.fillRect(x, scanY - 2, FRAME_WIDTH, 4);
+                    ctx.fillRect(x, scanY - 3, FRAME_WIDTH, 6);
 
                     // Lueur sur la ligne
                     ctx.shadowColor = "#00d4ff";
-                    ctx.shadowBlur = 15;
-                    ctx.fillStyle = "rgba(0, 212, 255, 0.5)";
-                    ctx.fillRect(x, scanY - 1, FRAME_WIDTH, 2);
+                    ctx.shadowBlur = 25;
+                    ctx.fillStyle = "rgba(0, 212, 255, 0.6)";
+                    ctx.fillRect(x, scanY - 2, FRAME_WIDTH, 4);
                     ctx.shadowBlur = 0;
                 }
 
-                // Texte d'instruction
-                ctx.font = "bold 24px Arial, sans-serif";
+                // Texte d'instruction centré en haut
+                ctx.font = "bold 36px Arial, sans-serif";
                 ctx.fillStyle = "white";
                 ctx.textAlign = "center";
-                ctx.shadowColor = "rgba(0, 0, 0, 0.8)";
-                ctx.shadowBlur = 4;
-                ctx.fillText("Placez votre carte d'identité ici", overlay.width / 2, y - 30);
+                ctx.shadowColor = "rgba(0, 0, 0, 0.9)";
+                ctx.shadowBlur = 8;
+                ctx.fillText("Placez votre carte d'identité dans le cadre", overlay.width / 2, y - 50);
                 ctx.shadowBlur = 0;
 
-                // Indicateur de statut
+                // Indicateur de scan
                 if (isScanning && !detected) {
-                    ctx.font = "16px Arial, sans-serif";
+                    ctx.font = "24px Arial, sans-serif";
                     ctx.fillStyle = "#00d4ff";
-                    ctx.fillText("🔍 Analyse en cours...", overlay.width / 2, y + FRAME_HEIGHT + 40);
+                    ctx.fillText("🔍 Analyse en cours...", overlay.width / 2, y + FRAME_HEIGHT + 60);
                 }
             }
             requestAnimationFrame(drawFrame);
@@ -174,7 +190,7 @@ export default function AutoScanCNI() {
 
     // Capture et envoi
     useEffect(() => {
-        if (!videoRef.current || !canvasRef.current || !overlayRef.current) return;
+        if (!videoRef.current || !canvasRef.current) return;
         if (detected || !isScanning) return;
 
         const interval = setInterval(async () => {
@@ -218,14 +234,9 @@ export default function AutoScanCNI() {
                 let g = data[i + 1];
                 let b = data[i + 2];
 
-                // Conversion en niveaux de gris avec pondération
                 let gray = 0.299 * r + 0.587 * g + 0.114 * b;
-
-                // Amélioration du contraste (histogram stretching)
                 gray = ((gray - 50) / 155) * 255;
                 gray = Math.max(0, Math.min(255, gray));
-
-                // Augmentation de la netteté
                 gray = gray > 128 ? Math.min(255, gray + 30) : Math.max(0, gray - 30);
 
                 data[i] = gray;
@@ -236,7 +247,7 @@ export default function AutoScanCNI() {
 
             const base64 = canvas.toDataURL("image/jpeg", 0.9);
 
-            setDebug(`Capture en cours... (${new Date().toLocaleTimeString()})`);
+            setDebug(`Capture...`);
 
             router.post(
                 "/scan-cni",
@@ -249,7 +260,6 @@ export default function AutoScanCNI() {
                         if (data.nom || data.prenom || data.numero) {
                             setDetected(true);
                             setIsScanning(false);
-                            setDebug("✅ CNI détectée avec succès !");
 
                             stream?.getTracks().forEach((t) => t.stop());
 
@@ -261,13 +271,10 @@ export default function AutoScanCNI() {
                                     numero_cni: data.numero || "",
                                 },
                             });
-                        } else {
-                            setDebug("Aucune CNI détectée. Ajustez le cadre.");
                         }
                     },
                     onError: (errors) => {
                         console.error("Erreur OCR:", errors);
-                        setDebug("Erreur OCR: " + JSON.stringify(errors));
                     },
                 }
             );
@@ -277,89 +284,54 @@ export default function AutoScanCNI() {
     }, [detected, isScanning, stream]);
 
     return (
-        <div className="relative w-full max-w-4xl mx-auto bg-gray-900 rounded-2xl overflow-hidden shadow-2xl">
-            {/* En-tête */}
-            <div className="absolute top-0 left-0 right-0 z-20 bg-gradient-to-b from-black/80 to-transparent p-6">
-                <h2 className="text-white text-2xl font-bold text-center">
-                    Scanner votre Carte Nationale d'Identité
-                </h2>
-            </div>
+        <div
+            ref={containerRef}
+            className="fixed inset-0 bg-black overflow-hidden"
+        >
+            {/* Vidéo plein écran */}
+            <video
+                ref={videoRef}
+                autoPlay
+                playsInline
+                muted
+                className="absolute inset-0 w-full h-full object-cover"
+            />
 
-            {/* Conteneur vidéo */}
-            <div className="relative aspect-video bg-black">
-                <video
-                    ref={videoRef}
-                    autoPlay
-                    playsInline
-                    muted
-                    className="w-full h-full object-cover"
-                />
+            {/* Overlay pour le cadre de scan */}
+            <canvas
+                ref={overlayRef}
+                className="absolute inset-0 w-full h-full"
+                style={{ pointerEvents: "none" }}
+            />
 
-                {/* Overlay pour le cadre de scan */}
-                <canvas
-                    ref={overlayRef}
-                    className="absolute top-0 left-0 w-full h-full"
-                    style={{ pointerEvents: "none" }}
-                />
+            {/* Canvas caché pour la capture */}
+            <canvas ref={canvasRef} className="hidden" />
 
-                {/* Canvas caché pour la capture */}
-                <canvas ref={canvasRef} className="hidden" />
+            {/* Bouton d'annulation en haut à droite */}
+            {isScanning && !detected && (
+                <button
+                    onClick={() => {
+                        setIsScanning(false);
+                        stream?.getTracks().forEach((t) => t.stop());
+                        router.visit("/formulaire");
+                    }}
+                    className="absolute top-6 right-6 z-50 bg-red-600/90 hover:bg-red-700 text-white px-6 py-3 rounded-full text-lg font-medium transition-all backdrop-blur-sm shadow-lg flex items-center gap-2"
+                >
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                    Annuler
+                </button>
+            )}
 
-                {/* Indicateur de détection */}
-                {detected && (
-                    <div className="absolute inset-0 flex items-center justify-center bg-black/60 z-30">
-                        <div className="bg-green-500 text-white px-8 py-4 rounded-full flex items-center gap-3 shadow-lg animate-pulse">
-                            <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                            </svg>
-                            <span className="text-xl font-bold">CNI Détectée !</span>
-                        </div>
-                    </div>
-                )}
-            </div>
-
-            {/* Barre de statut en bas */}
-            <div className="bg-gray-800 p-4 flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                    <div className={`w-3 h-3 rounded-full ${isScanning ? 'bg-blue-500 animate-pulse' : detected ? 'bg-green-500' : 'bg-red-500'}`} />
-                    <span className="text-gray-300 text-sm">
-                        {debug || "En attente de la carte..."}
-                    </span>
-                </div>
-
-                {/* Bouton d'annulation */}
-                {isScanning && !detected && (
-                    <button
-                        onClick={() => {
-                            setIsScanning(false);
-                            stream?.getTracks().forEach((t) => t.stop());
-                            router.visit("/formulaire");
-                        }}
-                        className="bg-red-600 hover:bg-red-700 text-white px-6 py-2 rounded-lg text-sm font-medium transition-colors flex items-center gap-2"
-                    >
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            {/* Message de succès */}
+            {detected && (
+                <div className="absolute inset-0 flex items-center justify-center bg-black/70 z-40">
+                    <div className="bg-green-500 text-white px-12 py-6 rounded-2xl flex items-center gap-4 shadow-2xl animate-pulse">
+                        <svg className="w-12 h-12" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
                         </svg>
-                        Annuler
-                    </button>
-                )}
-            </div>
-
-            {/* Instructions */}
-            {!detected && isScanning && (
-                <div className="bg-blue-900/30 border-t border-blue-800 p-4">
-                    <div className="flex items-start gap-3 text-blue-200 text-sm">
-                        <svg className="w-5 h-5 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                        </svg>
-                        <div>
-                            <p className="font-medium mb-1">Conseils pour un bon scan :</p>
-                            <ul className="list-disc list-inside space-y-1 text-blue-300">
-                                <li>Assurez-vous d'avoir une bonne luminosité</li>
-                                <li>Placez la carte bien à plat dans le cadre</li>
-                                <li>Évitez les reflets sur la carte</li>
-                            </ul>
-                        </div>
+                        <span className="text-3xl font-bold">CNI Détectée !</span>
                     </div>
                 </div>
             )}
