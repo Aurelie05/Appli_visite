@@ -1,186 +1,242 @@
-import React, { useRef, useEffect, useState } from "react";
+import React, { useRef, useEffect, useState, useCallback } from "react";
 import { router } from "@inertiajs/react";
 
-type ScanResult = {
+// Types
+interface ScanResult {
     nom?: string;
     prenom?: string;
     numero?: string;
-};
+}
 
-export default function AutoScanCNI() {
+interface VideoDevice {
+    deviceId: string;
+    kind: MediaDeviceKind;
+    label: string;
+    groupId: string;
+}
+
+// Extension des props globales d'Inertia
+declare module "@inertiajs/core" {
+    interface PageProps {
+        data?: ScanResult;
+    }
+}
+
+// Constantes
+const FRAME_WIDTH: number = 1280;
+const FRAME_HEIGHT: number = 800;
+const SCAN_INTERVAL: number = 3000;
+const JPEG_QUALITY: number = 0.95;
+
+export default function AutoScanCNI(): JSX.Element {
+    // Refs
     const videoRef = useRef<HTMLVideoElement>(null);
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const overlayRef = useRef<HTMLCanvasElement>(null);
+
+    // State
     const [stream, setStream] = useState<MediaStream | null>(null);
-    const [detected, setDetected] = useState(false);
-    const [isScanning, setIsScanning] = useState(true);
+    const [detected, setDetected] = useState<boolean>(false);
+    const [isScanning, setIsScanning] = useState<boolean>(true);
     const [debug, setDebug] = useState<string>("");
+    const [deviceLabel, setDeviceLabel] = useState<string>("");
 
-    // Cadre agrandi (ajustez selon vos besoins)
-    const FRAME_WIDTH = 650;
-    const FRAME_HEIGHT = 400;
-
-    // Fonction pour démarrer la caméra avec un deviceId donné
-    const startCamera = async (deviceId: string) => {
+    // Démarrer la caméra avec un deviceId spécifique
+    const startCamera = useCallback(async (deviceId: string): Promise<void> => {
         if (stream) {
-            stream.getTracks().forEach(track => track.stop());
+            stream.getTracks().forEach((track: MediaStreamTrack) => track.stop());
         }
+
         try {
-            const mediaStream = await navigator.mediaDevices.getUserMedia({
+            const constraints: MediaStreamConstraints = {
                 video: {
                     deviceId: { exact: deviceId },
                     width: { ideal: 1920 },
                     height: { ideal: 1080 },
-                },
-            });
+                    facingMode: { ideal: "environment" }
+                } as MediaTrackConstraints
+            };
+
+            const mediaStream: MediaStream = await navigator.mediaDevices.getUserMedia(constraints);
+
             setStream(mediaStream);
+
             if (videoRef.current) {
                 videoRef.current.srcObject = mediaStream;
                 await videoRef.current.play();
             }
-            setDebug("Caméra démarrée");
-        } catch (err) {
-            console.error("Erreur caméra:", err);
-            setDebug("Erreur caméra: " + (err as Error).message);
+
+            setDebug("Caméra démarrée avec succès");
+        } catch (err: unknown) {
+            const error = err as Error;
+            console.error("Erreur caméra:", error);
+            setDebug(`Erreur caméra: ${error.message}`);
         }
-    };
+    }, [stream]);
 
-    // Initialisation rapide de la caméra
+    // Initialisation de la caméra
     useEffect(() => {
-        let mounted = true;
+        let mounted: boolean = true;
 
-        const initCamera = async () => {
+        const initCamera = async (): Promise<void> => {
             try {
-                // Étape 1 : essayer d'obtenir la liste des caméras sans flux temporaire
-                let devices = await navigator.mediaDevices.enumerateDevices();
-                let videoDevices = devices.filter(d => d.kind === "videoinput");
+                const tempStream: MediaStream = await navigator.mediaDevices.getUserMedia({ video: true });
+                tempStream.getTracks().forEach((track: MediaStreamTrack) => track.stop());
 
-                // Si les labels sont vides (pas de permission), on demande un flux temporaire
-                if (videoDevices.length === 0 || !videoDevices[0].label) {
-                    const tempStream = await navigator.mediaDevices.getUserMedia({ video: true });
-                    tempStream.getTracks().forEach(track => track.stop());
-                    devices = await navigator.mediaDevices.enumerateDevices();
-                    videoDevices = devices.filter(d => d.kind === "videoinput");
-                }
+                const devices: MediaDeviceInfo[] = await navigator.mediaDevices.enumerateDevices();
+                const videoDevices: VideoDevice[] = devices
+                    .filter((d: MediaDeviceInfo) => d.kind === "videoinput")
+                    .map((d: MediaDeviceInfo) => ({
+                        deviceId: d.deviceId,
+                        kind: d.kind,
+                        label: d.label,
+                        groupId: d.groupId
+                    }));
 
                 if (!mounted) return;
 
-                // Chercher la caméra "Camera 2.0 facing back" ou une caméra arrière
-                let selectedDeviceId = null;
+                setDebug(`${videoDevices.length} caméra(s) détectée(s)`);
 
-                // 1. Recherche explicite du label contenant "2.0" et "back"
-                const preferred = videoDevices.find(d =>
-                    d.label.toLowerCase().includes("2.0") &&
-                    d.label.toLowerCase().includes("back")
+                let selectedDevice: VideoDevice | undefined;
+
+                selectedDevice = videoDevices.find((d: VideoDevice) =>
+                    d.label.includes("Camera 2.0") && d.label.includes("facing back")
                 );
 
-                if (preferred) {
-                    selectedDeviceId = preferred.deviceId;
-                    setDebug(`Caméra préférée trouvée: ${preferred.label}`);
-                } else {
-                    // 2. Sinon, chercher une caméra avec "back" ou "environment"
-                    const backCamera = videoDevices.find(d =>
-                        d.label.toLowerCase().includes("back") ||
-                        d.label.toLowerCase().includes("arrière") ||
-                        d.label.toLowerCase().includes("environment")
+                if (!selectedDevice) {
+                    selectedDevice = videoDevices.find((d: VideoDevice) =>
+                        d.label.toLowerCase().includes("2.0") &&
+                        d.label.toLowerCase().includes("back")
                     );
-                    if (backCamera) {
-                        selectedDeviceId = backCamera.deviceId;
-                        setDebug(`Caméra arrière trouvée: ${backCamera.label}`);
-                    } else {
-                        // 3. Dernier recours : la première caméra
-                        selectedDeviceId = videoDevices[0]?.deviceId;
-                        setDebug("Caméra par défaut");
-                    }
                 }
 
-                if (selectedDeviceId) {
-                    await startCamera(selectedDeviceId);
+                if (!selectedDevice) {
+                    selectedDevice = videoDevices.find((d: VideoDevice) =>
+                        d.label.toLowerCase().includes("camera 2") ||
+                        d.label.toLowerCase().includes("back")
+                    );
+                }
+
+                if (!selectedDevice && videoDevices.length > 0) {
+                    selectedDevice = videoDevices[0];
+                }
+
+                if (selectedDevice) {
+                    setDeviceLabel(selectedDevice.label);
+                    setDebug(`Caméra sélectionnée: ${selectedDevice.label}`);
+                    await startCamera(selectedDevice.deviceId);
                 } else {
                     setDebug("Aucune caméra disponible");
                 }
-            } catch (err) {
+
+            } catch (err: unknown) {
                 if (!mounted) return;
-                console.error("Erreur init caméra:", err);
-                setDebug("Erreur init: " + (err as Error).message);
+                const error = err as Error;
+                console.error("Erreur init caméra:", error);
+                setDebug(`Erreur init: ${error.message}`);
             }
         };
 
         initCamera();
 
-        return () => {
+        return (): void => {
             mounted = false;
             if (stream) {
-                stream.getTracks().forEach(track => track.stop());
+                stream.getTracks().forEach((track: MediaStreamTrack) => track.stop());
             }
         };
-    }, []);
+    }, [startCamera, stream]);
 
-    // Dessiner le cadre de scan (avec les nouvelles dimensions)
+    // Dessiner le cadre de scan
     useEffect(() => {
-        const video = videoRef.current;
-        const overlay = overlayRef.current;
+        const video: HTMLVideoElement | null = videoRef.current;
+        const overlay: HTMLCanvasElement | null = overlayRef.current;
+
         if (!video || !overlay) return;
 
-        const drawFrame = () => {
+        const drawFrame = (): void => {
             if (video.readyState === video.HAVE_ENOUGH_DATA) {
-                overlay.width = video.videoWidth;
-                overlay.height = video.videoHeight;
+                if (overlay.width !== video.videoWidth || overlay.height !== video.videoHeight) {
+                    overlay.width = video.videoWidth;
+                    overlay.height = video.videoHeight;
+                }
 
-                const ctx = overlay.getContext("2d");
+                const ctx: CanvasRenderingContext2D | null = overlay.getContext("2d");
                 if (!ctx) return;
 
                 ctx.clearRect(0, 0, overlay.width, overlay.height);
 
-                const x = (overlay.width - FRAME_WIDTH) / 2;
-                const y = (overlay.height - FRAME_HEIGHT) / 2;
+                const x: number = (overlay.width - FRAME_WIDTH) / 2;
+                const y: number = (overlay.height - FRAME_HEIGHT) / 2;
 
-                // Assombrir l'extérieur du cadre
-                ctx.fillStyle = "rgba(0,0,0,0.5)";
+                ctx.fillStyle = "rgba(0, 0, 0, 0.6)";
                 ctx.fillRect(0, 0, overlay.width, overlay.height);
-                ctx.clearRect(x, y, FRAME_WIDTH, FRAME_HEIGHT);
 
-                // Dessiner le contour vert
+                ctx.globalCompositeOperation = "destination-out";
+                ctx.fillRect(x, y, FRAME_WIDTH, FRAME_HEIGHT);
+                ctx.globalCompositeOperation = "source-over";
+
                 ctx.strokeStyle = "#00ff00";
-                ctx.lineWidth = 4;
+                ctx.lineWidth = 6;
                 ctx.strokeRect(x, y, FRAME_WIDTH, FRAME_HEIGHT);
 
-                ctx.font = "20px Arial";
-                ctx.fillStyle = "white";
-                ctx.fillText("Placez la CNI dans le cadre", x, y - 10);
+                const cornerSize: number = 40;
+                ctx.lineWidth = 8;
+                ctx.strokeStyle = "#00ff00";
+
+                const drawCorner = (startX: number, startY: number, directionX: number, directionY: number): void => {
+                    ctx.beginPath();
+                    ctx.moveTo(startX, startY + cornerSize * directionY);
+                    ctx.lineTo(startX, startY);
+                    ctx.lineTo(startX + cornerSize * directionX, startY);
+                    ctx.stroke();
+                };
+
+                drawCorner(x, y, 1, 1);
+                drawCorner(x + FRAME_WIDTH, y, -1, 1);
+                drawCorner(x, y + FRAME_HEIGHT, 1, -1);
+                drawCorner(x + FRAME_WIDTH, y + FRAME_HEIGHT, -1, -1);
+
+                ctx.font = "bold 28px Arial";
+                ctx.fillStyle = "#00ff00";
+                ctx.textAlign = "center";
+                ctx.fillText("Placez la CNI entière dans le cadre", overlay.width / 2, y - 30);
+
+                if (isScanning && !detected) {
+                    ctx.font = "20px Arial";
+                    ctx.fillStyle = "#ffffff";
+                    ctx.fillText("🔍 Analyse en cours...", overlay.width / 2, y + FRAME_HEIGHT + 40);
+                }
             }
+
             requestAnimationFrame(drawFrame);
         };
 
-        const animationId = requestAnimationFrame(drawFrame);
-        return () => cancelAnimationFrame(animationId);
-    }, [videoRef.current, FRAME_WIDTH, FRAME_HEIGHT]);
+        const animationId: number = requestAnimationFrame(drawFrame);
+        return (): void => cancelAnimationFrame(animationId);
+    }, [isScanning, detected]);
 
-    // Capture et envoi (adapté à la nouvelle taille)
+    // Capture et envoi OCR
     useEffect(() => {
-        if (!videoRef.current || !canvasRef.current || !overlayRef.current) return;
-        if (detected || !isScanning) return;
+        const video: HTMLVideoElement | null = videoRef.current;
+        const canvas: HTMLCanvasElement | null = canvasRef.current;
 
-        const interval = setInterval(async () => {
-            const video = videoRef.current;
-            const canvas = canvasRef.current;
-            const overlay = overlayRef.current;
-            if (!video || !canvas || !overlay) return;
+        if (!video || !canvas || detected || !isScanning) return;
 
+        const captureAndSend = async (): Promise<void> => {
             if (video.videoWidth === 0 || video.videoHeight === 0) return;
 
-            const ctx = canvas.getContext("2d");
+            const ctx: CanvasRenderingContext2D | null = canvas.getContext("2d");
             if (!ctx) return;
 
-            const videoWidth = video.videoWidth;
-            const videoHeight = video.videoHeight;
-            const frameX = (videoWidth - FRAME_WIDTH) / 2;
-            const frameY = (videoHeight - FRAME_HEIGHT) / 2;
+            const videoWidth: number = video.videoWidth;
+            const videoHeight: number = video.videoHeight;
+            const frameX: number = (videoWidth - FRAME_WIDTH) / 2;
+            const frameY: number = (videoHeight - FRAME_HEIGHT) / 2;
 
             canvas.width = FRAME_WIDTH;
             canvas.height = FRAME_HEIGHT;
 
-            // Extraire uniquement la zone du cadre
             ctx.drawImage(
                 video,
                 frameX,
@@ -193,102 +249,120 @@ export default function AutoScanCNI() {
                 FRAME_HEIGHT
             );
 
-            // Amélioration du contraste
-            const imageData = ctx.getImageData(0, 0, FRAME_WIDTH, FRAME_HEIGHT);
-            const data = imageData.data;
-            for (let i = 0; i < data.length; i += 4) {
-                let r = data[i];
-                let g = data[i + 1];
-                let b = data[i + 2];
-                let gray = 0.34 * r + 0.5 * g + 0.16 * b;
-                gray = gray > 128 ? Math.min(255, gray + 40) : Math.max(0, gray - 40);
+            const imageData: ImageData = ctx.getImageData(0, 0, FRAME_WIDTH, FRAME_HEIGHT);
+            const data: Uint8ClampedArray = imageData.data;
+
+            for (let i: number = 0; i < data.length; i += 4) {
+                const r: number = data[i];
+                const g: number = data[i + 1];
+                const b: number = data[i + 2];
+                let gray: number = 0.34 * r + 0.5 * g + 0.16 * b;
+                gray = gray > 128 ? Math.min(255, gray + 50) : Math.max(0, gray - 30);
                 data[i] = gray;
                 data[i + 1] = gray;
                 data[i + 2] = gray;
             }
+
             ctx.putImageData(imageData, 0, 0);
 
-            const base64 = canvas.toDataURL("image/jpeg", 0.9);
-
-            setDebug(`Capture en cours... (${new Date().toLocaleTimeString()})`);
+            const base64: string = canvas.toDataURL("image/jpeg", JPEG_QUALITY);
+            setDebug(`Capture: ${new Date().toLocaleTimeString()}`);
 
             router.post(
                 "/scan-cni",
                 { image: base64 },
                 {
                     preserveScroll: true,
-                    onSuccess: (page: any) => {
-                        const data: ScanResult = page.props?.data || {};
+                    // ✅ SOLUTION 1: Utiliser le type InertiaPage global
+                    onSuccess: (page): void => {
+                        const result: ScanResult = (page.props as { data?: ScanResult }).data ?? {};
 
-                        if (data.nom || data.prenom || data.numero) {
-                            console.log("CNI détectée :", data);
+                        if (result.nom || result.prenom || result.numero) {
+                            console.log("CNI détectée:", result);
                             setDetected(true);
                             setIsScanning(false);
-                            setDebug("CNI détectée avec succès !");
+                            setDebug("✅ CNI détectée avec succès !");
 
-                            stream?.getTracks().forEach((t) => t.stop());
+                            stream?.getTracks().forEach((track: MediaStreamTrack) => track.stop());
 
                             router.visit("/formulaire", {
                                 method: "get",
                                 data: {
-                                    nom: data.nom || "",
-                                    prenom: data.prenom || "",
-                                    numero_cni: data.numero || "",
+                                    nom: result.nom ?? "",
+                                    prenom: result.prenom ?? "",
+                                    numero_cni: result.numero ?? "",
                                 },
                             });
                         } else {
-                            setDebug("Aucune CNI détectée. Ajustez le cadre.");
+                            setDebug("❌ Aucune CNI détectée. Ajustez la carte.");
                         }
                     },
-                    onError: (errors) => {
+                    onError: (errors: Record<string, string>): void => {
                         console.error("Erreur OCR:", errors);
-                        setDebug("Erreur OCR: " + JSON.stringify(errors));
+                        setDebug(`Erreur OCR: ${JSON.stringify(errors)}`);
                     },
                 }
             );
-        }, 3000);
+        };
 
-        return () => clearInterval(interval);
-    }, [detected, isScanning, stream, FRAME_WIDTH, FRAME_HEIGHT]);
+        const intervalId: NodeJS.Timeout = setInterval(captureAndSend, SCAN_INTERVAL);
+        return (): void => clearInterval(intervalId);
+    }, [detected, isScanning, stream]);
+
+    const handleCancel = (): void => {
+        setIsScanning(false);
+        stream?.getTracks().forEach((track: MediaStreamTrack) => track.stop());
+        router.visit("/formulaire");
+    };
 
     return (
-        <div className="relative w-full max-w-3xl mx-auto">
+        <div className="relative w-full h-screen bg-black overflow-hidden">
             <video
                 ref={videoRef}
                 autoPlay
                 playsInline
-                className="w-full h-auto rounded-lg"
+                muted
+                className="absolute inset-0 w-full h-full object-cover"
             />
 
             <canvas
                 ref={overlayRef}
-                className="absolute top-0 left-0 w-full h-full rounded-lg"
-                style={{ pointerEvents: "none" }}
+                className="absolute inset-0 w-full h-full pointer-events-none"
             />
 
-            <canvas ref={canvasRef} style={{ display: "none" }} />
+            <canvas ref={canvasRef} className="hidden" />
 
-            {/* Message de statut */}
-            {!detected && isScanning && (
-                <div className="absolute bottom-4 left-0 right-0 text-center">
-                    <span className="bg-black bg-opacity-70 text-white px-4 py-2 rounded-full text-sm">
+            <div className="absolute bottom-8 left-0 right-0 flex flex-col items-center gap-4">
+                {!detected && isScanning && (
+                    <div className="bg-black/80 text-white px-6 py-3 rounded-full text-lg font-medium">
                         {debug || "Placez la carte dans le cadre vert..."}
-                    </span>
-                </div>
-            )}
+                    </div>
+                )}
 
-            {/* Bouton d'annulation */}
+                {detected && (
+                    <div className="bg-green-600 text-white px-6 py-3 rounded-full text-lg font-bold animate-pulse">
+                        CNI détectée ! Redirection...
+                    </div>
+                )}
+            </div>
+
             {isScanning && !detected && (
                 <button
-                    onClick={() => {
-                        setIsScanning(false);
-                        stream?.getTracks().forEach((t) => t.stop());
-                        router.visit("/formulaire");
-                    }}
-                    className="absolute top-4 right-4 bg-red-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-red-700"
+                    type="button"
+                    onClick={handleCancel}
+                    className="absolute top-6 right-6 bg-red-600 hover:bg-red-700 text-white px-6 py-3 rounded-full text-lg font-medium transition-colors shadow-lg"
                 >
-                    Annuler
+                    ✕ Annuler
                 </button>
+            )}
+
+            {stream && (
+                <div className="absolute top-6 left-6 flex items-center gap-2 bg-black/60 text-white px-4 py-2 rounded-full text-sm">
+                    <div className="w-3 h-3 bg-green-500 rounded-full animate-pulse" />
+                    <span className="truncate max-w-[200px]">
+                        {deviceLabel || "Caméra active"}
+                    </span>
+                </div>
             )}
         </div>
     );
