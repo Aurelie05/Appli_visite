@@ -29,19 +29,16 @@ const SCAN_INTERVAL: number = 3000;
 const JPEG_QUALITY: number = 0.95;
 
 export default function AutoScanCNI(): JSX.Element {
-    // Refs
     const videoRef = useRef<HTMLVideoElement>(null);
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const overlayRef = useRef<HTMLCanvasElement>(null);
 
-    // State
     const [stream, setStream] = useState<MediaStream | null>(null);
     const [detected, setDetected] = useState<boolean>(false);
     const [isScanning, setIsScanning] = useState<boolean>(true);
     const [debug, setDebug] = useState<string>("");
     const [deviceLabel, setDeviceLabel] = useState<string>("");
 
-    // Démarrer la caméra avec un deviceId spécifique
     const startCamera = useCallback(async (deviceId: string): Promise<void> => {
         if (stream) {
             stream.getTracks().forEach((track: MediaStreamTrack) => track.stop());
@@ -53,7 +50,6 @@ export default function AutoScanCNI(): JSX.Element {
                     deviceId: { exact: deviceId },
                     width: { ideal: 1920 },
                     height: { ideal: 1080 },
-                    facingMode: { ideal: "environment" }
                 } as MediaTrackConstraints
             };
 
@@ -74,12 +70,13 @@ export default function AutoScanCNI(): JSX.Element {
         }
     }, [stream]);
 
-    // Initialisation de la caméra
+    // ✅ SÉLECTION STRICTE: Camera 2.0 facing back uniquement
     useEffect(() => {
         let mounted: boolean = true;
 
         const initCamera = async (): Promise<void> => {
             try {
+                // Obtenir la permission d'abord
                 const tempStream: MediaStream = await navigator.mediaDevices.getUserMedia({ video: true });
                 tempStream.getTracks().forEach((track: MediaStreamTrack) => track.stop());
 
@@ -95,39 +92,67 @@ export default function AutoScanCNI(): JSX.Element {
 
                 if (!mounted) return;
 
-                setDebug(`${videoDevices.length} caméra(s) détectée(s)`);
+                // Debug: afficher toutes les caméras trouvées
+                console.log("Caméras disponibles:");
+                videoDevices.forEach((d, i) => {
+                    console.log(`${i}: ${d.label} (ID: ${d.deviceId.substring(0, 8)}...)`);
+                });
 
+                setDebug(`${videoDevices.length} caméra(s) trouvée(s)`);
+
+                // ✅ RECHERCHE EXACTE: "Camera 2.0 facing back"
+                // On exclut explicitement la 2.2 et tout autre numéro
                 let selectedDevice: VideoDevice | undefined;
 
+                // Priorité 1: Label exact "Camera 2.0 facing back"
                 selectedDevice = videoDevices.find((d: VideoDevice) =>
-                    d.label.includes("Camera 2.0") && d.label.includes("facing back")
+                    d.label === "Camera 2.0 facing back"
                 );
 
+                // Priorité 2: Contient "2.0" mais PAS "2.2" et contient "back"
                 if (!selectedDevice) {
                     selectedDevice = videoDevices.find((d: VideoDevice) =>
-                        d.label.toLowerCase().includes("2.0") &&
+                        d.label.includes("2.0") &&
+                        !d.label.includes("2.2") &&
+                        !d.label.includes("2.1") &&
                         d.label.toLowerCase().includes("back")
                     );
                 }
 
+                // Priorité 3: Contient "camera 2" mais PAS "2.2", "2.1", "2.3", etc.
                 if (!selectedDevice) {
-                    selectedDevice = videoDevices.find((d: VideoDevice) =>
-                        d.label.toLowerCase().includes("camera 2") ||
-                        d.label.toLowerCase().includes("back")
+                    selectedDevice = videoDevices.find((d: VideoDevice) => {
+                        const lowerLabel = d.label.toLowerCase();
+                        return (
+                            lowerLabel.includes("camera 2") &&
+                            !lowerLabel.includes("2.1") &&
+                            !lowerLabel.includes("2.2") &&
+                            !lowerLabel.includes("2.3") &&
+                            !lowerLabel.includes("2.4") &&
+                            lowerLabel.includes("back")
+                        );
+                    });
+                }
+
+                // ❌ PAS DE FALLBACK sur caméra 2.2 - on préfère échouer
+                if (!selectedDevice) {
+                    setDebug("❌ Caméra 2.0 facing back non trouvée !");
+                    console.error("Caméra 2.0 facing back non trouvée. Caméras disponibles:",
+                        videoDevices.map(d => d.label)
                     );
+                    return;
                 }
 
-                if (!selectedDevice && videoDevices.length > 0) {
-                    selectedDevice = videoDevices[0];
+                // Vérification finale qu'on n'a pas sélectionné la 2.2 par erreur
+                if (selectedDevice.label.includes("2.2")) {
+                    setDebug("❌ ERREUR: Caméra 2.2 sélectionnée par erreur");
+                    console.error("ERREUR: Caméra infrarouge 2.2 détectée, arrêt");
+                    return;
                 }
 
-                if (selectedDevice) {
-                    setDeviceLabel(selectedDevice.label);
-                    setDebug(`Caméra sélectionnée: ${selectedDevice.label}`);
-                    await startCamera(selectedDevice.deviceId);
-                } else {
-                    setDebug("Aucune caméra disponible");
-                }
+                setDeviceLabel(selectedDevice.label);
+                setDebug(`✅ Caméra sélectionnée: ${selectedDevice.label}`);
+                await startCamera(selectedDevice.deviceId);
 
             } catch (err: unknown) {
                 if (!mounted) return;
@@ -147,7 +172,6 @@ export default function AutoScanCNI(): JSX.Element {
         };
     }, [startCamera, stream]);
 
-    // Dessiner le cadre de scan
     useEffect(() => {
         const video: HTMLVideoElement | null = videoRef.current;
         const overlay: HTMLCanvasElement | null = overlayRef.current;
@@ -216,7 +240,6 @@ export default function AutoScanCNI(): JSX.Element {
         return (): void => cancelAnimationFrame(animationId);
     }, [isScanning, detected]);
 
-    // Capture et envoi OCR
     useEffect(() => {
         const video: HTMLVideoElement | null = videoRef.current;
         const canvas: HTMLCanvasElement | null = canvasRef.current;
@@ -273,7 +296,6 @@ export default function AutoScanCNI(): JSX.Element {
                 { image: base64 },
                 {
                     preserveScroll: true,
-                    // ✅ SOLUTION 1: Utiliser le type InertiaPage global
                     onSuccess: (page): void => {
                         const result: ScanResult = (page.props as { data?: ScanResult }).data ?? {};
 
